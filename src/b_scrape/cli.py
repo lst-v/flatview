@@ -33,6 +33,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--radius", type=int, default=25, help="Search radius in km (default: 25)"
     )
     parser.add_argument(
+        "--strict-location",
+        action="store_true",
+        help="Only show listings where city matches --location exactly",
+    )
+    parser.add_argument(
         "--price-from", type=int, default=None, help="Minimum price filter"
     )
     parser.add_argument(
@@ -89,6 +94,11 @@ def main(argv: list[str] | None = None) -> None:
         listings = parse_listings(html, site=args.site)
         if not listings:
             break
+
+        if args.strict_location and args.location:
+            loc = args.location.lower()
+            listings = [l for l in listings if l.city.lower() == loc]
+
         result.listings.extend(listings)
 
     print_results(result)
