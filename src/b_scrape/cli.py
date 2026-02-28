@@ -23,6 +23,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="reality",
         help="Category subdomain slug (default: reality)",
     )
+    parser.add_argument(
+        "--subcategory",
+        default="",
+        help="Subcategory path (e.g. 'prenajmu/byt', 'predam/dom')",
+    )
     parser.add_argument("--location", default="", help="City name or postal code")
     parser.add_argument(
         "--radius", type=int, default=25, help="Search radius in km (default: 25)"
@@ -61,6 +66,7 @@ def main(argv: list[str] | None = None) -> None:
         url = build_search_url(
             category=args.category,
             site=args.site,
+            subcategory=args.subcategory,
             query=args.query,
             location=args.location,
             radius=args.radius,

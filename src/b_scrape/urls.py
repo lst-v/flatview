@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 def build_search_url(
     category: str,
     site: str = "bazos.sk",
+    subcategory: str = "",
     query: str = "",
     location: str = "",
     radius: int = 25,
@@ -18,6 +19,7 @@ def build_search_url(
     Args:
         category: Subdomain category slug (e.g. "reality", "auto").
         site: Domain — "bazos.sk" or "bazos.cz".
+        subcategory: Path-based subcategory (e.g. "prenajmu/byt", "predam/dom").
         query: Search keyword.
         location: City name or postal code.
         radius: Search radius in km.
@@ -28,6 +30,15 @@ def build_search_url(
     base = f"https://{category}.{site}"
     offset = page * 20
 
+    # Build path: /{subcategory}/{offset}/
+    path_parts: list[str] = []
+    if subcategory:
+        path_parts.append(subcategory.strip("/"))
+    if offset > 0:
+        path_parts.append(str(offset))
+
+    path = "/" + "/".join(path_parts) + "/" if path_parts else "/"
+
     params: dict[str, str | int] = {}
     params["hledat"] = query
     params["hlokalita"] = location
@@ -36,6 +47,4 @@ def build_search_url(
     params["cenado"] = price_to if price_to is not None else ""
     params["order"] = ""
 
-    if offset > 0:
-        return f"{base}/{offset}/?{urlencode(params)}"
-    return f"{base}/?{urlencode(params)}"
+    return f"{base}{path}?{urlencode(params)}"
