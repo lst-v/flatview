@@ -6,6 +6,8 @@ import sys
 
 from rich.console import Console
 
+from requests import HTTPError
+
 from b_scrape.client import BazosClient
 from b_scrape.display import print_results
 from b_scrape.models import SearchResult
@@ -101,6 +103,11 @@ def main(argv: list[str] | None = None) -> None:
 
         try:
             html = client.get(url)
+        except HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                break
+            console.print(f"[red]Error fetching page {page + 1}: {e}[/red]")
+            break
         except Exception as e:
             console.print(f"[red]Error fetching page {page + 1}: {e}[/red]")
             break
