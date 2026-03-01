@@ -6,7 +6,7 @@ from rich.table import Table
 from b_scrape.models import SearchResult
 
 
-def print_results(result: SearchResult) -> None:
+def print_results(result: SearchResult, *, filter_pattern: str = "") -> None:
     """Print search results as a rich table with summary stats."""
     console = Console()
 
@@ -15,12 +15,16 @@ def print_results(result: SearchResult) -> None:
         return
 
     # Header
-    header_parts = [f"[bold]{result.query}[/bold]"]
+    header_parts = []
+    if result.query:
+        header_parts.append(f"[bold]{result.query}[/bold]")
     if result.category:
         header_parts.append(f"in [cyan]{result.category}[/cyan]")
     if result.location:
         header_parts.append(f"near [cyan]{result.location}[/cyan]")
     header_parts.append(f"on [cyan]{result.site}[/cyan]")
+    if filter_pattern:
+        header_parts.append(f"filter [magenta]/{filter_pattern}/[/magenta]")
     console.print(" ".join(header_parts))
 
     if result.total_count is not None:

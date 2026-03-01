@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 
 from rich.console import Console
@@ -17,7 +18,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         prog="b-scrape",
         description="Search bazos.sk/bazos.cz classified ads and get price insights.",
     )
-    parser.add_argument("query", help="Search query (e.g. '2 izbový byt')")
+    parser.add_argument(
+        "query", nargs="?", default="", help="Search query (e.g. '2 izbový byt')"
+    )
     parser.add_argument(
         "--category",
         default="reality",
@@ -50,7 +53,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Site to search (default: bazos.sk)",
     )
     parser.add_argument(
-        "--pages", type=int, default=1, help="Number of pages to scrape (default: 1)"
+        "--filter",
+        default="",
+        help="Regex pattern to filter listing titles (case-insensitive)",
+    )
+    parser.add_argument(
+        "--pages",
+        type=int,
+        default=None,
+        help="Number of pages to scrape (default: 1, use 0 for all)",
     )
     return parser.parse_args(argv)
 
@@ -60,6 +71,11 @@ def main(argv: list[str] | None = None) -> None:
     console = Console()
     client = BazosClient()
 
+    # Default pages: all (0) when no query, otherwise 1
+    max_pages = args.pages if args.pages is not None else (0 if not args.query else 1)
+
+    filter_re = re.compile(args.filter, re.IGNORECASE) if args.filter else None
+
     result = SearchResult(
         query=args.query,
         category=args.category,
@@ -67,7 +83,8 @@ def main(argv: list[str] | None = None) -> None:
         site=args.site,
     )
 
-    for page in range(args.pages):
+    page = 0
+    while max_pages == 0 or page < max_pages:
         url = build_search_url(
             category=args.category,
             site=args.site,
@@ -99,9 +116,13 @@ def main(argv: list[str] | None = None) -> None:
             loc = args.location.lower()
             listings = [l for l in listings if l.city.lower() == loc]
 
-        result.listings.extend(listings)
+        if filter_re:
+            listings = [l for l in listings if filter_re.search(l.title)]
 
-    print_results(result)
+        result.listings.extend(listings)
+        page += 1
+
+    print_results(result, filter_pattern=args.filter)
 
 
 if __name__ == "__main__":
