@@ -16,3 +16,6 @@ wheels/
 
 # OS
 .DS_Store
+
+# Output reports
+output/
