@@ -14,6 +14,8 @@ class Listing:
     url: str
     views: int | None = None
     id: int | None = None
+    source: str = "bazos"
+    area: float | None = None
 
 
 @dataclass
