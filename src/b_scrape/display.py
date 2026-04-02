@@ -1,12 +1,39 @@
 from __future__ import annotations
 
+import difflib
+
 from rich.console import Console
 from rich.table import Table
 
-from b_scrape.models import SearchResult
+from b_scrape.models import Listing, SearchResult
 
 
-def print_results(result: SearchResult, *, filter_pattern: str = "") -> None:
+def _find_duplicates(results: list[SearchResult]) -> set[int]:
+    """Find listings that appear on multiple sources via fuzzy title matching."""
+    groups: dict[str, list[Listing]] = {}
+    for r in results:
+        for listing in r.listings:
+            groups.setdefault(listing.source, []).append(listing)
+
+    sources = list(groups.keys())
+    if len(sources) < 2:
+        return set()
+
+    dup_ids: set[int] = set()
+    for i, src_a in enumerate(sources):
+        for src_b in sources[i + 1 :]:
+            for la in groups[src_a]:
+                for lb in groups[src_b]:
+                    ratio = difflib.SequenceMatcher(
+                        None, la.title.lower(), lb.title.lower()
+                    ).ratio()
+                    if ratio >= 0.7:
+                        dup_ids.add(id(la))
+                        dup_ids.add(id(lb))
+    return dup_ids
+
+
+def print_results(result: SearchResult, *, filter_pattern: str = "", duplicate_ids: set[int] | None = None) -> None:
     """Print search results as a rich table with summary stats."""
     console = Console()
 
@@ -54,7 +81,11 @@ def print_results(result: SearchResult, *, filter_pattern: str = "") -> None:
         if listing.postcode:
             location += f" ({listing.postcode})"
 
-        row = [str(i), listing.title, price_str]
+        title_display = listing.title
+        if duplicate_ids and id(listing) in duplicate_ids:
+            title_display = f"[yellow]*[/yellow] {listing.title}"
+
+        row = [str(i), title_display, price_str]
         if has_area:
             area_str = f"{listing.area:.0f} m²" if listing.area else "[dim]—[/dim]"
             pm2_str = (
@@ -77,20 +108,27 @@ def print_multi_results(
     """Print grouped results per source, then a combined summary."""
     console = Console()
 
+    dup_ids = _find_duplicates(results)
+
     for result in results:
         if result.listings:
             console.print()
-            print_results(result, filter_pattern=filter_pattern)
+            print_results(result, filter_pattern=filter_pattern, duplicate_ids=dup_ids)
             console.print()
 
     # Combined summary
     all_listings = [l for r in results for l in r.listings]
     if len(results) > 1 and all_listings:
         sources = [r.site for r in results if r.listings]
+        dup_count = sum(1 for l in all_listings if id(l) in dup_ids)
         console.print(
             f"\n[bold]Combined summary[/bold] ({len(all_listings)} listings "
             f"from {', '.join(sources)})"
         )
+        if dup_count:
+            console.print(
+                f"[yellow]Detected {dup_count} potential cross-source duplicates (marked with *)[/yellow]"
+            )
         _print_price_summary(console, all_listings)
 
 

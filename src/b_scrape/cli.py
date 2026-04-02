@@ -15,7 +15,7 @@ from b_scrape.nehnutelnosti_parser import (
     parse_nehnutelnosti_total_count,
 )
 from b_scrape.nehnutelnosti_urls import build_nehnutelnosti_url
-from b_scrape.parser import parse_listings, parse_total_count
+from b_scrape.parser import parse_detail_area, parse_listings, parse_total_count
 from b_scrape.urls import build_search_url
 
 
@@ -63,6 +63,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="bazos",
         choices=["bazos", "nehnutelnosti", "all"],
         help="Data source (default: bazos)",
+    )
+    parser.add_argument(
+        "--zip",
+        default="",
+        help="Filter listings by postcode (bazos only, exact match)",
     )
     parser.add_argument(
         "--filter",
@@ -130,11 +135,35 @@ def _scrape_bazos(
             loc = args.location.lower()
             listings = [l for l in listings if l.city.lower() == loc]
 
+        if args.zip:
+            zip_norm = args.zip.replace(" ", "")
+            listings = [l for l in listings if l.postcode.replace(" ", "") == zip_norm]
+
         if filter_re:
             listings = [l for l in listings if filter_re.search(l.title)]
 
         result.listings.extend(listings)
         page += 1
+
+    # Fetch detail pages for m² data
+    total = len(result.listings)
+    if total:
+        console.print(f"[dim]Fetching bazos detail pages for m² data ({total} listings)…[/dim]")
+    for i, listing in enumerate(result.listings, 1):
+        if not listing.url:
+            continue
+        # Fix subdomain: detail URLs default to www.bazos.xx but need category subdomain
+        detail_url = listing.url.replace(
+            f"://www.{args.site}", f"://{args.category}.{args.site}"
+        )
+        try:
+            console.print(f"[dim]  Detail {i}/{total}…[/dim]")
+            detail_html = client.get(detail_url)
+            area = parse_detail_area(detail_html)
+            if area:
+                listing.area = area
+        except Exception:
+            pass
 
     return result
 
@@ -151,6 +180,8 @@ def _scrape_nehnutelnosti(
             "[yellow]Warning: nehnutelnosti.sk only covers real estate. "
             f"--category '{args.category}' ignored.[/yellow]"
         )
+    if args.zip:
+        console.print("[yellow]Warning: --zip filter not supported for nehnutelnosti.sk (no postcode data).[/yellow]")
 
     result = SearchResult(
         query=args.query,
@@ -185,6 +216,11 @@ def _scrape_nehnutelnosti(
         listings = parse_nehnutelnosti_listings(html)
         if not listings:
             break
+
+        if args.location:
+            for listing in listings:
+                if not listing.city:
+                    listing.city = args.location
 
         if filter_re:
             listings = [l for l in listings if filter_re.search(l.title)]

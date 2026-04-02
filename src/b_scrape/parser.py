@@ -7,6 +7,30 @@ from bs4 import BeautifulSoup, Tag
 from b_scrape.models import Listing
 
 
+AREA_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*m[²2]", re.IGNORECASE)
+
+
+def parse_detail_area(html: str) -> float | None:
+    """Extract floor area (m²) from a bazos detail page."""
+    soup = BeautifulSoup(html, "lxml")
+
+    # Detect deleted listings
+    mc = soup.select_one("div.maincontent")
+    if mc and "vymazaný" in mc.get_text()[:100]:
+        return None
+
+    # div.popisdetail is the actual listing description on detail pages
+    desc = soup.select_one("div.popisdetail")
+    if not desc:
+        return None
+    text = desc.get_text()
+    match = AREA_RE.search(text)
+    if match:
+        val = float(match.group(1).replace(",", "."))
+        return val if val > 1 else None
+    return None
+
+
 def parse_listings(html: str, site: str = "bazos.sk") -> list[Listing]:
     """Parse listing cards from a bazos search results page."""
     soup = BeautifulSoup(html, "lxml")
