@@ -29,6 +29,9 @@ dependencies = [
     "fpdf2>=2.8.7",
 ]
 
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
 [project.scripts]
 b-scrape = "b_scrape.cli:main"
 
