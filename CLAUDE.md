@@ -1,18 +1,18 @@
-# b-scrape
+# flatview
 
 CLI scraper for bazos.sk/bazos.cz and nehnutelnosti.sk classified ads with price insights.
 
 ## Project structure
 
-- `src/b_scrape/cli.py` — CLI entry point (argparse, --source flag for multi-portal, --export for file output)
-- `src/b_scrape/client.py` — HTTP client (requests wrapper, headers, 1s rate limiting)
-- `src/b_scrape/parser.py` — BeautifulSoup HTML parsing for bazos (listing cards, pagination, detail page m² extraction)
-- `src/b_scrape/nehnutelnosti_parser.py` — JSON-LD parsing for nehnutelnosti.sk (RSC payload extraction)
-- `src/b_scrape/models.py` — Dataclasses: Listing (source, area fields), SearchResult
-- `src/b_scrape/urls.py` — URL builder for bazos (domain, category, search params, pagination)
-- `src/b_scrape/nehnutelnosti_urls.py` — URL builder for nehnutelnosti.sk (path-based routing, flag mapping)
-- `src/b_scrape/display.py` — Console table output (rich), grouped multi-source display, duplicate highlighting
-- `src/b_scrape/export.py` — File export: CSV, XLSX (openpyxl), PDF (fpdf2) with summary stats
+- `src/flatview/cli.py` — CLI entry point (argparse, --source flag for multi-portal, --export for file output)
+- `src/flatview/client.py` — HTTP client (requests wrapper, headers, 1s rate limiting)
+- `src/flatview/parser.py` — BeautifulSoup HTML parsing for bazos (listing cards, pagination, detail page m² extraction)
+- `src/flatview/nehnutelnosti_parser.py` — JSON-LD parsing for nehnutelnosti.sk (RSC payload extraction)
+- `src/flatview/models.py` — Dataclasses: Listing (source, area fields), SearchResult
+- `src/flatview/urls.py` — URL builder for bazos (domain, category, search params, pagination)
+- `src/flatview/nehnutelnosti_urls.py` — URL builder for nehnutelnosti.sk (path-based routing, flag mapping)
+- `src/flatview/display.py` — Console table output (rich), grouped multi-source display, duplicate highlighting
+- `src/flatview/export.py` — File export: CSV, XLSX (openpyxl), PDF (fpdf2) with summary stats
 
 ## CLI flags
 
@@ -69,13 +69,13 @@ CLI scraper for bazos.sk/bazos.cz and nehnutelnosti.sk classified ads with price
 
 ```bash
 uv sync            # install deps
-uv run b-scrape "2 izbový byt" --category reality --location Michalovce
-uv run b-scrape "2 izbový byt" --source nehnutelnosti --subcategory predam/byt --location Michalovce
-uv run b-scrape "2 izbový byt" --source all --subcategory predam/byt --location Michalovce --zip 07101 --pages 0
-uv run b-scrape "2 izbový byt" --source all --subcategory predam/byt --location Michalovce --export csv,xlsx,pdf
+uv run flatview "2 izbový byt" --category reality --location Michalovce
+uv run flatview "2 izbový byt" --source nehnutelnosti --subcategory predam/byt --location Michalovce
+uv run flatview "2 izbový byt" --source all --subcategory predam/byt --location Michalovce --zip 07101 --pages 0
+uv run flatview "2 izbový byt" --source all --subcategory predam/byt --location Michalovce --export csv,xlsx,pdf
 ```
 
 ## Commands
 
 - `uv sync` — install/update dependencies
-- `uv run b-scrape` — run the CLI
+- `uv run flatview` — run the CLI

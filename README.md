@@ -1,4 +1,4 @@
-# b-scrape
+# flatview
 
 CLI scraper for Slovak and Czech real estate classified ads. Aggregates listings from [bazos.sk](https://www.bazos.sk)/[bazos.cz](https://www.bazos.cz) and [nehnutelnosti.sk](https://www.nehnutelnosti.sk) with price and price-per-m2 analysis.
 
@@ -16,8 +16,8 @@ CLI scraper for Slovak and Czech real estate classified ads. Aggregates listings
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone https://github.com/lst-v/b-scrape.git
-cd b-scrape
+git clone https://github.com/lst-v/flatview.git
+cd flatview
 uv sync
 ```
 
@@ -25,25 +25,25 @@ uv sync
 
 ```bash
 # Search bazos.sk (default source)
-uv run b-scrape "2 izbový byt" --subcategory predam/byt --location Michalovce
+uv run flatview "2 izbový byt" --subcategory predam/byt --location Michalovce
 
 # Search nehnutelnosti.sk only
-uv run b-scrape "2 izbový byt" --source nehnutelnosti --subcategory predam/byt --location Michalovce
+uv run flatview "2 izbový byt" --source nehnutelnosti --subcategory predam/byt --location Michalovce
 
 # Combined search with postcode filter and all pages
-uv run b-scrape "2 izbový byt" --source all --subcategory predam/byt \
+uv run flatview "2 izbový byt" --source all --subcategory predam/byt \
   --location Michalovce --radius 0 --strict-location --zip 07101 --pages 0
 
 # Export results to CSV and Excel
-uv run b-scrape "2 izbový byt" --source all --subcategory predam/byt \
+uv run flatview "2 izbový byt" --source all --subcategory predam/byt \
   --location Michalovce --export csv,xlsx
 
 # Filter titles with regex
-uv run b-scrape "2 izbový byt" --subcategory predam/byt --location Bratislava \
+uv run flatview "2 izbový byt" --subcategory predam/byt --location Bratislava \
   --filter "rekonštruk"
 
 # Search Czech bazos
-uv run b-scrape "2+kk" --site bazos.cz --subcategory prodam/byt --location Praha
+uv run flatview "2+kk" --site bazos.cz --subcategory prodam/byt --location Praha
 ```
 
 ## CLI options
