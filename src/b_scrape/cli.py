@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import re
+from datetime import date
 
 from rich.console import Console
 
@@ -79,6 +80,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=None,
         help="Number of pages to scrape (default: 1, use 0 for all)",
+    )
+    parser.add_argument(
+        "--export",
+        default="",
+        help="Export formats: csv, xlsx, pdf (comma-separated, e.g. 'csv,xlsx')",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="output",
+        help="Output directory for exports (default: output/)",
     )
     return parser.parse_args(argv)
 
@@ -254,6 +265,35 @@ def main(argv: list[str] | None = None) -> None:
         print_results(results[0], filter_pattern=args.filter)
     else:
         print_multi_results(results, filter_pattern=args.filter)
+
+    # Export
+    if args.export:
+        from b_scrape.export import export_csv, export_pdf, export_xlsx
+
+        all_listings = [l for r in results for l in r.listings]
+        if not all_listings:
+            return
+
+        formats = [f.strip().lower() for f in args.export.split(",")]
+        slug = re.sub(r"[^\w]+", "_", f"{args.query}_{args.location}".strip("_"))[:40]
+        base = f"{args.output_dir}/{slug}_{date.today().isoformat()}"
+
+        for fmt in formats:
+            if fmt == "csv":
+                path = f"{base}.csv"
+                export_csv(all_listings, path)
+                console.print(f"[green]Exported CSV: {path}[/green]")
+            elif fmt == "xlsx":
+                path = f"{base}.xlsx"
+                export_xlsx(all_listings, path)
+                console.print(f"[green]Exported XLSX: {path}[/green]")
+            elif fmt == "pdf":
+                path = f"{base}.pdf"
+                title = f"{args.query} - {args.location} - {date.today().isoformat()}"
+                export_pdf(all_listings, path, title=title)
+                console.print(f"[green]Exported PDF: {path}[/green]")
+            else:
+                console.print(f"[yellow]Unknown export format: {fmt}[/yellow]")
 
 
 if __name__ == "__main__":

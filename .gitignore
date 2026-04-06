@@ -17,5 +17,18 @@ wheels/
 # OS
 .DS_Store
 
+# Env / secrets
+.env
+.env.*
+
+# Logs
+*.log
+
+# Testing
+.pytest_cache/
+
+# Claude Code
+.claude/
+
 # Output reports
 output/
