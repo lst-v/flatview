@@ -1,4 +1,4 @@
-from b_scrape.models import Listing, SearchResult
+from flatview.models import Listing, SearchResult
 
 
 def test_listing_defaults():

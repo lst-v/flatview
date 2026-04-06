@@ -1,4 +1,4 @@
-from b_scrape.nehnutelnosti_urls import build_nehnutelnosti_url
+from flatview.nehnutelnosti_urls import build_nehnutelnosti_url
 
 
 def test_basic_url():

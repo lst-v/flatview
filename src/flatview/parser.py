@@ -4,7 +4,7 @@ import re
 
 from bs4 import BeautifulSoup, Tag
 
-from b_scrape.models import Listing
+from flatview.models import Listing
 
 
 AREA_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*m[²2]", re.IGNORECASE)

@@ -1,6 +1,6 @@
 import pytest
 
-from b_scrape.parser import AREA_RE, _parse_price, parse_detail_area, parse_listings, parse_total_count
+from flatview.parser import AREA_RE, _parse_price, parse_detail_area, parse_listings, parse_total_count
 
 
 # --- Minimal HTML fixtures ---

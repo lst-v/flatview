@@ -8,21 +8,21 @@ from rich.console import Console
 
 from requests import HTTPError
 
-from b_scrape.client import BazosClient
-from b_scrape.display import print_multi_results, print_results
-from b_scrape.models import SearchResult
-from b_scrape.nehnutelnosti_parser import (
+from flatview.client import BazosClient
+from flatview.display import print_multi_results, print_results
+from flatview.models import SearchResult
+from flatview.nehnutelnosti_parser import (
     parse_nehnutelnosti_listings,
     parse_nehnutelnosti_total_count,
 )
-from b_scrape.nehnutelnosti_urls import build_nehnutelnosti_url
-from b_scrape.parser import parse_detail_area, parse_listings, parse_total_count
-from b_scrape.urls import build_search_url
+from flatview.nehnutelnosti_urls import build_nehnutelnosti_url
+from flatview.parser import parse_detail_area, parse_listings, parse_total_count
+from flatview.urls import build_search_url
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="b-scrape",
+        prog="flatview",
         description="Search bazos.sk/bazos.cz and nehnutelnosti.sk classified ads.",
     )
     parser.add_argument(
@@ -268,7 +268,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # Export
     if args.export:
-        from b_scrape.export import export_csv, export_pdf, export_xlsx
+        from flatview.export import export_csv, export_pdf, export_xlsx
 
         all_listings = [l for r in results for l in r.listings]
         if not all_listings:

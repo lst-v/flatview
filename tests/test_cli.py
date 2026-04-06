@@ -1,6 +1,6 @@
 import pytest
 
-from b_scrape.cli import parse_args
+from flatview.cli import parse_args
 
 
 def test_default_args():

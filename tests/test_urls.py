@@ -1,4 +1,4 @@
-from b_scrape.urls import build_search_url
+from flatview.urls import build_search_url
 
 
 def test_basic_url():

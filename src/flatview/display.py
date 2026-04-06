@@ -5,7 +5,7 @@ import difflib
 from rich.console import Console
 from rich.table import Table
 
-from b_scrape.models import Listing, SearchResult
+from flatview.models import Listing, SearchResult
 
 
 def _find_duplicates(results: list[SearchResult]) -> set[int]:

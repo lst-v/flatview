@@ -5,7 +5,7 @@ import re
 
 from bs4 import BeautifulSoup
 
-from b_scrape.models import Listing
+from flatview.models import Listing
 
 
 def _extract_jsonld(html: str) -> dict | None:

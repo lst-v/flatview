@@ -6,7 +6,7 @@ import unicodedata
 from pathlib import Path
 from statistics import median
 
-from b_scrape.models import Listing
+from flatview.models import Listing
 
 
 def _strip_diacritics(s: str) -> str:

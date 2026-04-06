@@ -1,4 +1,4 @@
-from b_scrape.display import _find_duplicates
+from flatview.display import _find_duplicates
 
 
 def test_no_duplicates_single_source(make_listing, make_search_result):

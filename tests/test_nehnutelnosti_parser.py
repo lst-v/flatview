@@ -1,6 +1,6 @@
 import json
 
-from b_scrape.nehnutelnosti_parser import (
+from flatview.nehnutelnosti_parser import (
     _extract_jsonld,
     _parse_item,
     parse_nehnutelnosti_listings,

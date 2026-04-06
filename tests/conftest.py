@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from b_scrape.models import Listing, SearchResult
+from flatview.models import Listing, SearchResult
 
 
 @pytest.fixture

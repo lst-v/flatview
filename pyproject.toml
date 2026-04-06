@@ -1,5 +1,5 @@
 [project]
-name = "b-scrape"
+name = "flatview"
 version = "0.1.0"
 description = "CLI scraper for bazos.sk/bazos.cz and nehnutelnosti.sk classified ads with price insights"
 readme = "README.md"
@@ -33,11 +33,11 @@ dependencies = [
 dev = ["pytest>=8.0"]
 
 [project.scripts]
-b-scrape = "b_scrape.cli:main"
+flatview = "flatview.cli:main"
 
 [project.urls]
-Repository = "https://github.com/lst-v/b-scrape"
-Issues = "https://github.com/lst-v/b-scrape/issues"
+Repository = "https://github.com/lst-v/flatview"
+Issues = "https://github.com/lst-v/flatview/issues"
 
 [build-system]
 requires = ["uv_build>=0.10.7,<0.11.0"]

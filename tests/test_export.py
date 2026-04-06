@@ -2,7 +2,7 @@ import csv
 
 import pytest
 
-from b_scrape.export import (
+from flatview.export import (
     _location_str,
     _price_per_m2,
     _strip_diacritics,
