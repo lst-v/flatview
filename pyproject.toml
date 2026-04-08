@@ -1,14 +1,14 @@
 [project]
 name = "flatview"
 version = "0.1.0"
-description = "CLI scraper for bazos.sk/bazos.cz and nehnutelnosti.sk classified ads with price insights"
+description = "CLI scraper for bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk classified ads with price insights"
 readme = "README.md"
 license = "MIT"
 authors = [
     { name = "lst-v" }
 ]
 requires-python = ">=3.12"
-keywords = ["scraper", "bazos", "nehnutelnosti", "real-estate", "cli", "slovakia", "czechia"]
+keywords = ["scraper", "bazos", "nehnutelnosti", "topreality", "real-estate", "cli", "slovakia", "czechia"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

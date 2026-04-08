@@ -82,6 +82,11 @@ def test_all_flags():
     assert args.output_dir == "/tmp/out"
 
 
+def test_source_topreality():
+    args = parse_args(["--source", "topreality"])
+    assert args.source == "topreality"
+
+
 def test_pages_zero():
     args = parse_args(["--pages", "0"])
     assert args.pages == 0

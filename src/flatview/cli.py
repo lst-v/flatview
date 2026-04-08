@@ -17,13 +17,18 @@ from flatview.nehnutelnosti_parser import (
 )
 from flatview.nehnutelnosti_urls import build_nehnutelnosti_url
 from flatview.parser import parse_detail_area, parse_listings, parse_total_count
+from flatview.topreality_parser import (
+    parse_topreality_listings,
+    parse_topreality_total_count,
+)
+from flatview.topreality_urls import build_topreality_url, resolve_location
 from flatview.urls import build_search_url
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="flatview",
-        description="Search bazos.sk/bazos.cz and nehnutelnosti.sk classified ads.",
+        description="Search bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk classified ads.",
     )
     parser.add_argument(
         "query", nargs="?", default="", help="Search query (e.g. '2 izbový byt')"
@@ -62,7 +67,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--source",
         default="bazos",
-        choices=["bazos", "nehnutelnosti", "all"],
+        choices=["bazos", "nehnutelnosti", "topreality", "all"],
         help="Data source (default: bazos)",
     )
     parser.add_argument(
@@ -243,6 +248,84 @@ def _scrape_nehnutelnosti(
     return result
 
 
+def _scrape_topreality(
+    args: argparse.Namespace,
+    client: BazosClient,
+    console: Console,
+    filter_re: re.Pattern | None,
+    max_pages: int,
+) -> SearchResult:
+    if args.category != "reality":
+        console.print(
+            "[yellow]Warning: topreality.sk only covers real estate. "
+            f"--category '{args.category}' ignored.[/yellow]"
+        )
+    if args.zip:
+        console.print("[yellow]Warning: --zip filter not supported for topreality.sk (no postcode data).[/yellow]")
+
+    result = SearchResult(
+        query=args.query,
+        category="reality",
+        location=args.location,
+        site="topreality.sk",
+    )
+
+    # Resolve location name to topreality district ID
+    location_id = ""
+    if args.location:
+        console.print(f"[dim]Resolving topreality location for '{args.location}'…[/dim]")
+        location_id = resolve_location(args.location)
+        if location_id:
+            console.print(f"[dim]Resolved to: {location_id}[/dim]")
+        else:
+            console.print(f"[yellow]Warning: could not resolve location '{args.location}' on topreality.sk[/yellow]")
+
+    page = 1
+    pages_fetched = 0
+    while max_pages == 0 or pages_fetched < max_pages:
+        url = build_topreality_url(
+            query=args.query,
+            subcategory=args.subcategory,
+            location_id=location_id,
+            price_from=args.price_from,
+            price_to=args.price_to,
+            page=page,
+        )
+
+        console.print(f"[dim]Fetching topreality page {page}… {url}[/dim]")
+
+        try:
+            html = client.get(url)
+        except Exception as e:
+            console.print(f"[red]Error fetching topreality page {page}: {e}[/red]")
+            break
+
+        if pages_fetched == 0:
+            result.total_count = parse_topreality_total_count(html)
+
+        listings = parse_topreality_listings(html)
+        if not listings:
+            break
+
+        if args.location:
+            for listing in listings:
+                if not listing.city:
+                    listing.city = args.location
+
+        if args.strict_location and args.location:
+            loc = args.location.lower()
+            listings = [l for l in listings if l.city.lower() == loc]
+
+        if filter_re:
+            listings = [l for l in listings if filter_re.search(l.title)]
+
+        result.listings.extend(listings)
+        pages_fetched += 1
+        page += 1
+
+    return result
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     console = Console()
@@ -259,6 +342,11 @@ def main(argv: list[str] | None = None) -> None:
     if args.source in ("nehnutelnosti", "all"):
         results.append(
             _scrape_nehnutelnosti(args, client, console, filter_re, max_pages)
+        )
+
+    if args.source in ("topreality", "all"):
+        results.append(
+            _scrape_topreality(args, client, console, filter_re, max_pages)
         )
 
     if len(results) == 1:
