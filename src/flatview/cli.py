@@ -169,9 +169,10 @@ def _scrape_bazos(
         if not listing.url:
             continue
         # Fix subdomain: detail URLs default to www.bazos.xx but need category subdomain
-        detail_url = listing.url.replace(
+        listing.url = listing.url.replace(
             f"://www.{args.site}", f"://{args.category}.{args.site}"
         )
+        detail_url = listing.url
         try:
             console.print(f"[dim]  Detail {i}/{total}…[/dim]")
             detail_html = client.get(detail_url)
