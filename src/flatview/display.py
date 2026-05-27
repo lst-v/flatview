@@ -5,7 +5,15 @@ import difflib
 from rich.console import Console
 from rich.table import Table
 
+from flatview.analytics import compute_stats, stats_by_segment
 from flatview.models import Listing, SearchResult
+
+
+_SEG_STYLE = {
+    "new": "[green]NEW[/green]",
+    "resale": "[blue]RESALE[/blue]",
+    "unknown": "[dim]—[/dim]",
+}
 
 
 def _find_duplicates(results: list[SearchResult]) -> set[int]:
@@ -33,7 +41,13 @@ def _find_duplicates(results: list[SearchResult]) -> set[int]:
     return dup_ids
 
 
-def print_results(result: SearchResult, *, filter_pattern: str = "", duplicate_ids: set[int] | None = None) -> None:
+def print_results(
+    result: SearchResult,
+    *,
+    filter_pattern: str = "",
+    duplicate_ids: set[int] | None = None,
+    exclude_outliers: bool = False,
+) -> None:
     """Print search results as a rich table with summary stats."""
     console = Console()
 
@@ -59,11 +73,15 @@ def print_results(result: SearchResult, *, filter_pattern: str = "", duplicate_i
     console.print(f"Showing: {len(result.listings)} listings\n")
 
     has_area = any(l.area is not None for l in result.listings)
+    segments_present = {l.segment for l in result.listings}
+    has_segments = len(segments_present - {"unknown"}) >= 1 and len(segments_present) > 1
 
     # Table
     table = Table(show_lines=False)
     table.add_column("#", style="dim", width=4)
     table.add_column("Title", max_width=50)
+    if has_segments:
+        table.add_column("Seg", width=8)
     table.add_column("Price", justify="right")
     if has_area:
         table.add_column("Area", justify="right", width=8)
@@ -81,11 +99,17 @@ def print_results(result: SearchResult, *, filter_pattern: str = "", duplicate_i
         if listing.postcode:
             location += f" ({listing.postcode})"
 
-        title_display = listing.title
+        prefix = ""
+        if listing.is_outlier:
+            prefix += "[red]*[/red] "
         if duplicate_ids and id(listing) in duplicate_ids:
-            title_display = f"[yellow]*[/yellow] {listing.title}"
+            prefix += "[yellow]*[/yellow] "
+        title_display = f"{prefix}{listing.title}"
 
-        row = [str(i), title_display, price_str]
+        row = [str(i), title_display]
+        if has_segments:
+            row.append(_SEG_STYLE.get(listing.segment, listing.segment))
+        row.append(price_str)
         if has_area:
             area_str = f"{listing.area:.0f} m²" if listing.area else "[dim]—[/dim]"
             pm2_str = (
@@ -99,11 +123,14 @@ def print_results(result: SearchResult, *, filter_pattern: str = "", duplicate_i
         table.add_row(*row)
 
     console.print(table)
-    _print_price_summary(console, result.listings)
+    _print_price_summary(console, result.listings, exclude_outliers=exclude_outliers)
 
 
 def print_multi_results(
-    results: list[SearchResult], *, filter_pattern: str = ""
+    results: list[SearchResult],
+    *,
+    filter_pattern: str = "",
+    exclude_outliers: bool = False,
 ) -> None:
     """Print grouped results per source, then a combined summary."""
     console = Console()
@@ -113,7 +140,12 @@ def print_multi_results(
     for result in results:
         if result.listings:
             console.print()
-            print_results(result, filter_pattern=filter_pattern, duplicate_ids=dup_ids)
+            print_results(
+                result,
+                filter_pattern=filter_pattern,
+                duplicate_ids=dup_ids,
+                exclude_outliers=exclude_outliers,
+            )
             console.print()
 
     # Combined summary
@@ -129,41 +161,62 @@ def print_multi_results(
             console.print(
                 f"[yellow]Detected {dup_count} potential cross-source duplicates (marked with *)[/yellow]"
             )
-        _print_price_summary(console, all_listings)
+        _print_price_summary(console, all_listings, exclude_outliers=exclude_outliers)
 
 
-def _print_price_summary(console: Console, listings: list) -> None:
-    """Print price and price/m² stats."""
-    prices = [l.price for l in listings if l.price is not None]
-    if not prices:
+def _fmt_stat(v) -> str:
+    return f"{v:,.0f}" if isinstance(v, (int, float)) else "—"
+
+
+def _print_block(console: Console, label: str, stats: dict) -> None:
+    price = stats.get("price") or {}
+    pm2 = stats.get("pm2") or {}
+    cur = stats.get("currency", "EUR")
+    if not price.get("n") and not pm2.get("n"):
         return
-
-    currency = next(
-        (l.currency for l in listings if l.price is not None), "EUR"
-    )
-    avg = sum(prices) / len(prices)
-    prices_sorted = sorted(prices)
-    median = prices_sorted[len(prices_sorted) // 2]
-
-    console.print(f"\n[bold]Price summary[/bold] ({len(prices)} with price):")
-    console.print(f"  Average: {avg:,.0f} {currency}")
-    console.print(f"  Min:     {min(prices):,.0f} {currency}")
-    console.print(f"  Max:     {max(prices):,.0f} {currency}")
-    console.print(f"  Median:  {median:,.0f} {currency}")
-
-    # Price per m² stats if area data is available
-    pm2 = [
-        l.price / l.area
-        for l in listings
-        if l.price is not None and l.area is not None and l.area > 0
-    ]
-    if pm2:
-        pm2_sorted = sorted(pm2)
-        pm2_median = pm2_sorted[len(pm2_sorted) // 2]
+    console.print(f"\n[bold]{label}[/bold]")
+    if price.get("n"):
         console.print(
-            f"\n[bold]Price/m² summary[/bold] ({len(pm2)} with area):"
+            f"  Price ({cur}, n={price['n']}): "
+            f"P10 {_fmt_stat(price.get('p10'))}  "
+            f"P25 {_fmt_stat(price.get('p25'))}  "
+            f"P50 {_fmt_stat(price.get('p50'))}  "
+            f"P75 {_fmt_stat(price.get('p75'))}  "
+            f"P90 {_fmt_stat(price.get('p90'))}  "
+            f"avg {_fmt_stat(price.get('avg'))}  "
+            f"min {_fmt_stat(price.get('min'))}  "
+            f"max {_fmt_stat(price.get('max'))}"
         )
-        console.print(f"  Average: {sum(pm2) / len(pm2):,.0f} {currency}/m²")
-        console.print(f"  Min:     {min(pm2):,.0f} {currency}/m²")
-        console.print(f"  Max:     {max(pm2):,.0f} {currency}/m²")
-        console.print(f"  Median:  {pm2_median:,.0f} {currency}/m²")
+    if pm2.get("n"):
+        console.print(
+            f"  {cur}/m² (n={pm2['n']}): "
+            f"P10 {_fmt_stat(pm2.get('p10'))}  "
+            f"P25 {_fmt_stat(pm2.get('p25'))}  "
+            f"P50 {_fmt_stat(pm2.get('p50'))}  "
+            f"P75 {_fmt_stat(pm2.get('p75'))}  "
+            f"P90 {_fmt_stat(pm2.get('p90'))}  "
+            f"avg {_fmt_stat(pm2.get('avg'))}  "
+            f"min {_fmt_stat(pm2.get('min'))}  "
+            f"max {_fmt_stat(pm2.get('max'))}"
+        )
+
+
+def _print_price_summary(
+    console: Console, listings: list, *, exclude_outliers: bool = False
+) -> None:
+    if not listings:
+        return
+    n_outliers = sum(1 for l in listings if l.is_outlier)
+    overall = compute_stats(listings, exclude_outliers=exclude_outliers)
+    _print_block(console, "Stats", overall)
+    if n_outliers:
+        suffix = " (excluded from stats)" if exclude_outliers else " (still in stats)"
+        console.print(
+            f"[dim]Outliers: {n_outliers} flagged on EUR/m² IQR{suffix}.[/dim]"
+        )
+    per_seg = stats_by_segment(listings, exclude_outliers=exclude_outliers)
+    label_map = {"new": "New build", "resale": "Resale", "unknown": "Unclassified"}
+    if len(per_seg) >= 2:
+        for seg in ("new", "resale", "unknown"):
+            if seg in per_seg:
+                _print_block(console, label_map[seg], per_seg[seg])

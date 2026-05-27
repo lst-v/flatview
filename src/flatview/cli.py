@@ -16,7 +16,7 @@ from flatview.nehnutelnosti_parser import (
     parse_nehnutelnosti_total_count,
 )
 from flatview.nehnutelnosti_urls import build_nehnutelnosti_url
-from flatview.parser import parse_detail_area, parse_listings, parse_total_count
+from flatview.parser import parse_detail, parse_listings, parse_total_count
 from flatview.topreality_parser import (
     parse_topreality_listings,
     parse_topreality_total_count,
@@ -89,12 +89,39 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--export",
         default="",
-        help="Export formats: csv, xlsx, pdf (comma-separated, e.g. 'csv,xlsx')",
+        help="Export formats: csv, xlsx, pdf, html (comma-separated)",
     )
     parser.add_argument(
         "--output-dir",
         default="output",
         help="Output directory for exports (default: output/)",
+    )
+    parser.add_argument(
+        "--remove-outliers",
+        action="store_true",
+        help="Exclude IQR outliers (on EUR/m²) from stats and charts. Listings still shown, tagged.",
+    )
+    parser.add_argument(
+        "--report",
+        default="full",
+        choices=["full", "cma"],
+        help="HTML report mode (default: full). 'cma' produces an agent-style comparable analysis.",
+    )
+    parser.add_argument(
+        "--cma-area",
+        type=float,
+        default=None,
+        help="Target floor area (m²) for --report cma. Required when --report cma.",
+    )
+    parser.add_argument(
+        "--no-store",
+        action="store_true",
+        help="Skip writing this run to the SQLite history store.",
+    )
+    parser.add_argument(
+        "--db-path",
+        default=None,
+        help="Override SQLite history path (default: ~/.local/share/flatview/flatview.db)",
     )
     return parser.parse_args(argv)
 
@@ -176,9 +203,11 @@ def _scrape_bazos(
         try:
             console.print(f"[dim]  Detail {i}/{total}…[/dim]")
             detail_html = client.get(detail_url)
-            area = parse_detail_area(detail_html)
+            area, description = parse_detail(detail_html)
             if area:
                 listing.area = area
+            if description:
+                listing.description = description
         except Exception:
             pass
 
@@ -332,6 +361,10 @@ def main(argv: list[str] | None = None) -> None:
     console = Console()
     client = BazosClient()
 
+    if args.report == "cma" and args.cma_area is None:
+        console.print("[red]--report cma requires --cma-area FLOAT[/red]")
+        raise SystemExit(2)
+
     max_pages = args.pages if args.pages is not None else (0 if not args.query else 1)
     filter_re = re.compile(args.filter, re.IGNORECASE) if args.filter else None
 
@@ -350,18 +383,50 @@ def main(argv: list[str] | None = None) -> None:
             _scrape_topreality(args, client, console, filter_re, max_pages)
         )
 
+    all_listings = [l for r in results for l in r.listings]
+
+    # Post-scrape pipeline: segment, persist, flag outliers.
+    from flatview.analytics import annotate_segments, flag_outliers_iqr
+
+    annotate_segments(all_listings)
+
+    conn = None
+    if all_listings and not args.no_store:
+        from pathlib import Path
+        from flatview.storage import (
+            backfill_history,
+            default_db_path,
+            open_db,
+            upsert_listings,
+        )
+
+        db_path = Path(args.db_path) if args.db_path else default_db_path()
+        try:
+            conn = open_db(db_path)
+            upsert_listings(conn, all_listings)
+            backfill_history(conn, all_listings)
+        except Exception as e:
+            console.print(f"[yellow]Storage disabled: {e}[/yellow]")
+            conn = None
+
+    if all_listings:
+        n_flagged, _ = flag_outliers_iqr(all_listings)
+        if n_flagged:
+            console.print(
+                f"[yellow]Flagged {n_flagged} outliers on EUR/m² (IQR fence).[/yellow]"
+            )
+
     if len(results) == 1:
-        print_results(results[0], filter_pattern=args.filter)
+        print_results(results[0], filter_pattern=args.filter,
+                      exclude_outliers=args.remove_outliers)
     else:
-        print_multi_results(results, filter_pattern=args.filter)
+        print_multi_results(results, filter_pattern=args.filter,
+                            exclude_outliers=args.remove_outliers)
 
     # Export
-    if args.export:
+    if args.export and all_listings:
         from flatview.export import export_csv, export_pdf, export_xlsx
-
-        all_listings = [l for r in results for l in r.listings]
-        if not all_listings:
-            return
+        from flatview.html_report import render_report
 
         formats = [f.strip().lower() for f in args.export.split(",")]
         slug = re.sub(r"[^\w]+", "_", f"{args.query}_{args.location}".strip("_"))[:40]
@@ -381,8 +446,27 @@ def main(argv: list[str] | None = None) -> None:
                 title = f"{args.query} - {args.location} - {date.today().isoformat()}"
                 export_pdf(all_listings, path, title=title)
                 console.print(f"[green]Exported PDF: {path}[/green]")
+            elif fmt == "html":
+                from pathlib import Path
+                suffix = "_cma" if args.report == "cma" else ""
+                path = Path(f"{base}{suffix}.html")
+                render_report(
+                    all_listings,
+                    query=args.query,
+                    location=args.location,
+                    sources=[r.site for r in results if r.listings],
+                    out_path=path,
+                    mode=args.report,
+                    cma_target_area=args.cma_area,
+                    history_conn=conn,
+                    exclude_outliers=args.remove_outliers,
+                )
+                console.print(f"[green]Exported HTML: {path}[/green]")
             else:
                 console.print(f"[yellow]Unknown export format: {fmt}[/yellow]")
+
+    if conn is not None:
+        conn.close()
 
 
 if __name__ == "__main__":

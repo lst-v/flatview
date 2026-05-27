@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
+
+Segment = Literal["new", "resale", "unknown"]
 
 
 @dataclass
@@ -16,6 +19,11 @@ class Listing:
     id: int | None = None
     source: str = "bazos"
     area: float | None = None
+    description: str | None = None
+    segment: Segment = "unknown"
+    is_outlier: bool = False
+    first_seen: str | None = None
+    previous_price: float | None = None
 
 
 @dataclass

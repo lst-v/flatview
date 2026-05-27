@@ -65,10 +65,14 @@ def test_export_csv_content(tmp_path, make_listing):
         reader = csv.reader(f)
         rows = list(reader)
 
-    assert rows[0] == ["#", "Source", "Title", "Price (EUR)", "Area (m2)", "EUR/m2", "Location", "Date", "URL"]
+    assert rows[0] == [
+        "#", "Source", "Segment", "Title", "Price (EUR)", "Area (m2)",
+        "EUR/m2", "Location", "Date", "URL",
+    ]
     assert rows[1][1] == "bazos"
-    assert rows[1][2] == "Test Byt"
-    assert rows[1][3] == "100000.0"
+    # rows[1][2] is the segment column (empty for unknown)
+    assert rows[1][3] == "Test Byt"
+    assert rows[1][4] == "100000.0"
 
 
 def test_export_csv_summary_rows(tmp_path, make_listing):
@@ -83,6 +87,8 @@ def test_export_csv_summary_rows(tmp_path, make_listing):
     assert "Median" in content
     assert "Min" in content
     assert "Max" in content
+    assert "P25" in content
+    assert "P75" in content
 
 
 # --- XLSX export tests ---
