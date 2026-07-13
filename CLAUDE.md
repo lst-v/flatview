@@ -1,22 +1,35 @@
 # flatview
 
-CLI scraper for bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk classified ads with price insights.
+Market-tracking CLI for bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk classified ads: one-shot search with price insights, saved-search watches, scheduled tracking with event detection, and email/HTML digests.
 
 ## Project structure
 
-- `src/flatview/cli.py` — CLI entry point (argparse, --source flag for multi-portal, --export for file output)
-- `src/flatview/client.py` — HTTP client (requests wrapper, headers, 1s rate limiting)
+- `src/flatview/cli.py` — CLI entry point: subcommands `search` (default, legacy shim prepends it), `watch add|list|remove`, `track`; `params_from_args`; per-command `cmd_*` functions
+- `src/flatview/scrape.py` — portal scraping decoupled from argparse: frozen `SearchParams`, `scrape()` dispatch, `scrape_bazos/nehnutelnosti/topreality`, shared `_apply_filters`, HTML-drift warning
+- `src/flatview/client.py` — HTTP client (requests wrapper, headers, 1s rate limiting, urllib3 Retry backoff on 429/5xx, configurable timeout)
 - `src/flatview/parser.py` — BeautifulSoup HTML parsing for bazos (listing cards, pagination, detail page m² extraction)
 - `src/flatview/nehnutelnosti_parser.py` — JSON-LD parsing for nehnutelnosti.sk (RSC payload extraction)
-- `src/flatview/models.py` — Dataclasses: Listing (source, area fields), SearchResult
-- `src/flatview/urls.py` — URL builder for bazos (domain, category, search params, pagination)
-- `src/flatview/nehnutelnosti_urls.py` — URL builder for nehnutelnosti.sk (path-based routing, flag mapping)
 - `src/flatview/topreality_parser.py` — BeautifulSoup HTML parsing for topreality.sk (listing cards, area extraction)
-- `src/flatview/topreality_urls.py` — URL builder for topreality.sk (query-param routing, pagination in path)
-- `src/flatview/display.py` — Console table output (rich), grouped multi-source display, duplicate highlighting
-- `src/flatview/export.py` — File export: CSV, XLSX (openpyxl), PDF (fpdf2) with summary stats
+- `src/flatview/urls.py`, `nehnutelnosti_urls.py`, `topreality_urls.py` — per-portal URL builders
+- `src/flatview/models.py` — Dataclasses: `Listing` (segment, is_outlier, outlier_side, first_seen, previous_price), `SearchResult` (error field for fetch failures)
+- `src/flatview/analytics.py` — `compute_percentiles` (linear interpolation), `compute_stats`, `flag_outliers_iqr(k=1.5)` two-sided (bargain/overpriced), `iqr_fence`, `classify_segment`/`annotate_segments` (new/resale), `price_per_m2` (single source of truth)
+- `src/flatview/storage.py` — SQLite at `~/.local/share/flatview/flatview.db` (XDG). Tables: `listings`, `price_history`, `watches`, `watch_runs`, `watch_listings`. Upserts, price history, run recording, delist queries
+- `src/flatview/watches.py` — `Watch` dataclass wrapping `SearchParams`; add/get/list/remove
+- `src/flatview/track.py` — tracking pipeline: `run_watch` (events: new/price drops/increases/delisted/bargains/overpriced), `run_track` (exit codes 0/1/2), `WatchEvents`/`PriceChange`/`DelistedInfo`
+- `src/flatview/config.py` — `~/.config/flatview/config.toml` (tomllib): `SmtpConfig`, `TrackingConfig`; `FLATVIEW_SMTP_PASSWORD` env override
+- `src/flatview/digest.py` — email-safe HTML digest (inline CSS, no JS) + text fallback; `write_digest` → timestamped + `latest.html` in `~/.local/share/flatview/digests/`
+- `src/flatview/emailer.py` — SMTP send via stdlib `EmailMessage`; raises `EmailError`
+- `src/flatview/display.py` — console tables (rich), grouped multi-source display, duplicate highlighting, ↓/↑ outlier markers
+- `src/flatview/export.py` — CSV, XLSX (openpyxl), PDF (fpdf2) with summary stats
+- `src/flatview/html_report.py` — browser HTML report (Plotly CDN): stats, charts, outlier sections, comparables, CMA mode
+- `src/flatview/errors.py` — `FlatviewError` / `ScrapeError` / `ConfigError` / `EmailError`
+- `src/flatview/log.py` — `setup_logging`: RichHandler console + rotating file log at `~/.local/state/flatview/flatview.log`
 
-## CLI flags
+## CLI
+
+Subcommands: `search` (default — bare `flatview "query" --flags` still works via shim), `watch add|list|remove`, `track`. All accept `-v` (debug logging) and `--db-path`.
+
+Search flags (shared by `search` and `watch add`):
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -28,13 +41,24 @@ CLI scraper for bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk classified
 | `--radius` | `25` | Search radius in km (bazos only) |
 | `--strict-location` | off | Exact city name match filter |
 | `--zip` | `""` | Postcode filter (bazos only, e.g. `07101`) |
-| `--price-from` | none | Minimum price |
-| `--price-to` | none | Maximum price |
+| `--price-from` / `--price-to` | none | Price range |
 | `--site` | `bazos.sk` | Bazos TLD: `bazos.sk` or `bazos.cz` |
 | `--filter` | `""` | Regex filter on listing titles |
-| `--pages` | `1` | Pages to scrape (0 = all) |
-| `--export` | `""` | Export formats: `csv`, `xlsx`, `pdf` (comma-separated) |
-| `--output-dir` | `output` | Export directory |
+| `--pages` | `1` with query, all without | Pages to scrape (0 = all; watches store 0 by default) |
+
+`search`-only: `--export csv,xlsx,pdf,html`, `--output-dir` (default `output`), `--report full|cma`, `--cma-area FLOAT`, `--remove-outliers`, `--no-store`.
+`track`-only: `--watch NAME`, `--dry-run` (no writes/email), `--no-email`, `--config PATH`.
+
+## Tracking pipeline (`flatview track`)
+
+- Watches stored in the `watches` table (SearchParams columns 1:1); runs audited in `watch_runs` (status: running/ok/empty/error)
+- Per-watch listing membership in `watch_listings` (PK watch_id+source+listing_key, first/last_matched, delisted_at) — NEW/DELISTED are per watch, overlapping watches don't interfere
+- **NEW** = key not yet in watch_listings; the first successful run is a *baseline* and suppresses the NEW flood
+- **Price drop/increase** = current price vs `listings.last_price`, read before upsert
+- **Delisted** = `last_matched` older than `delist_after_days` (default 2) — checked only after a successful non-empty scrape; empty/error runs never delist (protects against network failure and HTML drift)
+- Exit codes: 0 all ok, 1 ≥1 watch failed, 2 usage/config error. `SearchResult.error` distinguishes "unreachable" from "genuinely empty"
+- Digest always written unless `--dry-run`; email only when SMTP configured ∧ not `--no-email` ∧ (events or `email_only_on_events=false`)
+- Scheduling: launchd plist or crontab (see README "Scheduling on macOS")
 
 ## How bazos works
 
@@ -54,7 +78,7 @@ CLI scraper for bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk classified
 - **Pagination**: `?page=N` query param, 30 items/page, starts at 1
 - **Data source**: JSON-LD schema.org graph embedded in Next.js RSC `self.__next_f.push()` script chunks
 - **Graph path**: `@graph` → `SearchResultsPage` → `mainEntity` (ItemList) → `itemListElement`
-- **Per listing**: `name`, `priceSpecification.price`, `floorSize.value` (m²), `url`; no address in JSON-LD (city backfilled from `--location`)
+- **Per listing**: `name`, `priceSpecification.price`, `floorSize.value` (m²), `url`; no address in JSON-LD (city backfilled from `--location`); listing id is a URL slug string
 - **Property types**: `byty`, `2-izbove-byty`, `3-izbove-byty`, `domy`, `pozemky`
 - **Transaction types**: `predaj`, `prenajom`
 - **Flag mapping**: `--subcategory predam/byt` → `/byty/.../predaj`; query "2 izbový" → `/2-izbove-byty/`
@@ -76,21 +100,21 @@ CLI scraper for bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk classified
 - **Multi-source**: `--source all` scrapes all portals and shows grouped results with combined summary
 - **m² extraction**: bazos detail pages fetched for floor area; nehnutelnosti provides it in JSON-LD; topreality provides it in HTML
 - **Duplicate detection**: fuzzy title matching (difflib, ratio >= 0.7) highlights cross-source duplicates with `*`
+- **Two-sided outliers**: 1.5×IQR fence on €/m²; below = bargain (green ↓), above = overpriced (red ↑); surfaced in console, exports, HTML report, digest
 - **Postcode filter**: `--zip` filters bazos listings by exact postcode (not available for nehnutelnosti/topreality)
-- **Export**: `--export csv,xlsx,pdf` generates files in `--output-dir`
+- **Export**: `--export csv,xlsx,pdf,html` generates files in `--output-dir`
 
 ## Development
 
 ```bash
-uv sync            # install deps
-uv run flatview "2 izbový byt" --category reality --location Michalovce
-uv run flatview "2 izbový byt" --source nehnutelnosti --subcategory predam/byt --location Michalovce
-uv run flatview "2 izbový byt" --source all --subcategory predam/byt --location Michalovce --zip 07101 --pages 0
-uv run flatview "2 izbový byt" --source topreality --subcategory predam/byt --location Michalovce
-uv run flatview "2 izbový byt" --source all --subcategory predam/byt --location Michalovce --export csv,xlsx,pdf
+uv sync                                # install deps (incl. ruff, mypy, pytest)
+uv run pytest                          # tests
+uv run ruff check . && uv run ruff format --check .   # lint + format
+uv run mypy src/flatview               # type check
+uv run flatview "2 izbový byt" --subcategory predam/byt --location Michalovce
+uv run flatview search "2 izbový byt" --source all --subcategory predam/byt --location Michalovce --export html
+uv run flatview watch add mi-2izb "2 izbový byt" --source all --subcategory predam/byt --location Michalovce
+uv run flatview track --dry-run -v
 ```
 
-## Commands
-
-- `uv sync` — install/update dependencies
-- `uv run flatview` — run the CLI
+CI (`.github/workflows/ci.yml`) runs ruff + mypy + pytest on Python 3.12–3.14. Tests never hit the network — scrapers are tested with fixture HTML and a fake client; track with monkeypatched scrape.
