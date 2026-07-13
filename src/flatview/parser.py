@@ -6,29 +6,31 @@ from bs4 import BeautifulSoup, Tag
 
 from flatview.models import Listing
 
-
 AREA_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*m[²2]", re.IGNORECASE)
 
 
-def parse_detail_area(html: str) -> float | None:
-    """Extract floor area (m²) from a bazos detail page."""
+def parse_detail(html: str) -> tuple[float | None, str | None]:
+    """Extract (area_m2, description_text) from a bazos detail page."""
     soup = BeautifulSoup(html, "lxml")
 
-    # Detect deleted listings
     mc = soup.select_one("div.maincontent")
     if mc and "vymazaný" in mc.get_text()[:100]:
-        return None
+        return None, None
 
-    # div.popisdetail is the actual listing description on detail pages
     desc = soup.select_one("div.popisdetail")
     if not desc:
-        return None
-    text = desc.get_text()
+        return None, None
+    text = desc.get_text(" ", strip=True)
+
+    area: float | None = None
     match = AREA_RE.search(text)
     if match:
         val = float(match.group(1).replace(",", "."))
-        return val if val > 1 else None
-    return None
+        if val > 1:
+            area = val
+
+    description = text if text else None
+    return area, description
 
 
 def parse_listings(html: str, site: str = "bazos.sk") -> list[Listing]:
@@ -69,6 +71,8 @@ def _parse_card(card: Tag, site: str) -> Listing | None:
 
     title = nadpis.get_text(strip=True)
     href = nadpis.get("href", "")
+    if not isinstance(href, str):
+        href = ""
     if href.startswith("/"):
         # Category subdomain — extract from parent URL context
         url = f"https://{_guess_subdomain(card, site)}.{site}{href}"
@@ -135,6 +139,8 @@ def _guess_subdomain(card: Tag, site: str) -> str:
     # Look for an absolute link in the card to extract subdomain
     for a in card.select("a[href^='https://']"):
         href = a.get("href", "")
+        if not isinstance(href, str):
+            continue
         match = re.match(rf"https://(\w+)\.{re.escape(site)}", href)
         if match:
             return match.group(1)

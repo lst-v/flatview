@@ -152,6 +152,10 @@ def _parse_item(item: dict) -> Listing | None:
     if id_match:
         listing_id = id_match.group(1)
 
+    description = item.get("description") or None
+    if isinstance(description, str):
+        description = description.strip() or None
+
     return Listing(
         title=name,
         price=price,
@@ -163,4 +167,5 @@ def _parse_item(item: dict) -> Listing | None:
         source="nehnutelnosti",
         area=area,
         id=listing_id,
+        description=description,
     )

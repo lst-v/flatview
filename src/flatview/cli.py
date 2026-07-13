@@ -2,37 +2,32 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 from datetime import date
 
 from rich.console import Console
 
-from requests import HTTPError
-
 from flatview.client import BazosClient
 from flatview.display import print_multi_results, print_results
+from flatview.log import setup_logging
 from flatview.models import SearchResult
-from flatview.nehnutelnosti_parser import (
-    parse_nehnutelnosti_listings,
-    parse_nehnutelnosti_total_count,
-)
-from flatview.nehnutelnosti_urls import build_nehnutelnosti_url
-from flatview.parser import parse_detail_area, parse_listings, parse_total_count
-from flatview.topreality_parser import (
-    parse_topreality_listings,
-    parse_topreality_total_count,
-)
-from flatview.topreality_urls import build_topreality_url, resolve_location
-from flatview.urls import build_search_url
+from flatview.scrape import SearchParams, scrape
+
+_COMMANDS = {"search", "watch", "track"}
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="flatview",
-        description="Search bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk classified ads.",
-    )
+def _add_common_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "query", nargs="?", default="", help="Search query (e.g. '2 izbový byt')"
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show debug output (per-request logs, detail-page progress)",
     )
+
+
+def _add_search_flags(parser: argparse.ArgumentParser) -> None:
+    """Flags shared by `search` and `watch add` — they define what to scrape."""
+    parser.add_argument("query", nargs="?", default="", help="Search query (e.g. '2 izbový byt')")
     parser.add_argument(
         "--category",
         default="reality",
@@ -52,12 +47,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Only show listings where city matches --location exactly",
     )
-    parser.add_argument(
-        "--price-from", type=int, default=None, help="Minimum price filter"
-    )
-    parser.add_argument(
-        "--price-to", type=int, default=None, help="Maximum price filter"
-    )
+    parser.add_argument("--price-from", type=int, default=None, help="Minimum price filter")
+    parser.add_argument("--price-to", type=int, default=None, help="Maximum price filter")
     parser.add_argument(
         "--site",
         default="bazos.sk",
@@ -86,282 +77,189 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Number of pages to scrape (default: 1, use 0 for all)",
     )
+
+
+def _add_db_flag(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--db-path",
+        default=None,
+        help="Override SQLite history path (default: ~/.local/share/flatview/flatview.db)",
+    )
+
+
+def _add_output_flags(parser: argparse.ArgumentParser) -> None:
+    """Flags specific to `search` — display, export, and storage behavior."""
     parser.add_argument(
         "--export",
         default="",
-        help="Export formats: csv, xlsx, pdf (comma-separated, e.g. 'csv,xlsx')",
+        help="Export formats: csv, xlsx, pdf, html (comma-separated)",
     )
     parser.add_argument(
         "--output-dir",
         default="output",
         help="Output directory for exports (default: output/)",
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--remove-outliers",
+        action="store_true",
+        help=(
+            "Exclude IQR outliers (on EUR/m²) from stats and charts. Listings still shown, tagged."
+        ),
+    )
+    parser.add_argument(
+        "--report",
+        default="full",
+        choices=["full", "cma"],
+        help="HTML report mode (default: full). 'cma' produces an agent-style comparable analysis.",
+    )
+    parser.add_argument(
+        "--cma-area",
+        type=float,
+        default=None,
+        help="Target floor area (m²) for --report cma. Required when --report cma.",
+    )
+    parser.add_argument(
+        "--no-store",
+        action="store_true",
+        help="Skip writing this run to the SQLite history store.",
+    )
 
 
-def _scrape_bazos(
-    args: argparse.Namespace,
-    client: BazosClient,
-    console: Console,
-    filter_re: re.Pattern | None,
-    max_pages: int,
-) -> SearchResult:
-    result = SearchResult(
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="flatview",
+        description="Search bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk classified ads.",
+    )
+    sub = parser.add_subparsers(dest="command")
+
+    search = sub.add_parser("search", help="One-shot search across portals (default command)")
+    _add_search_flags(search)
+    _add_output_flags(search)
+    _add_db_flag(search)
+    _add_common_flags(search)
+
+    watch = sub.add_parser("watch", help="Manage saved searches for tracking")
+    watch_sub = watch.add_subparsers(dest="watch_command", required=True)
+
+    w_add = watch_sub.add_parser("add", help="Save a search to re-run on every `flatview track`")
+    w_add.add_argument("name", help="Unique watch name (e.g. mi-2izb)")
+    _add_search_flags(w_add)
+    _add_db_flag(w_add)
+    _add_common_flags(w_add)
+
+    w_list = watch_sub.add_parser("list", help="List saved watches")
+    w_list.add_argument("--all", action="store_true", help="Include inactive watches")
+    _add_db_flag(w_list)
+    _add_common_flags(w_list)
+
+    w_remove = watch_sub.add_parser("remove", help="Remove a saved watch")
+    w_remove.add_argument("name", help="Watch name to remove")
+    _add_db_flag(w_remove)
+    _add_common_flags(w_remove)
+
+    track = sub.add_parser("track", help="Run all watches, detect new/changed/delisted listings")
+    track.add_argument("--watch", default=None, help="Run only this watch (by name)")
+    track.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Scrape and detect events but write nothing (no DB, no digest, no email)",
+    )
+    track.add_argument(
+        "--no-email",
+        action="store_true",
+        help="Skip sending the email digest even when SMTP is configured",
+    )
+    track.add_argument(
+        "--config",
+        default=None,
+        help="Config file path (default: ~/.config/flatview/config.toml)",
+    )
+    _add_db_flag(track)
+    _add_common_flags(track)
+
+    return parser
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    if argv is None:
+        argv = sys.argv[1:]
+    argv = list(argv)
+    # Legacy shim: bare `flatview "query" --flags` behaves as `flatview search …`.
+    if not argv or (argv[0] not in _COMMANDS and argv[0] not in ("-h", "--help")):
+        argv = ["search", *argv]
+    return build_parser().parse_args(argv)
+
+
+def params_from_args(args: argparse.Namespace) -> SearchParams:
+    return SearchParams(
         query=args.query,
-        category=args.category,
-        location=args.location,
+        source=args.source,
         site=args.site,
-    )
-
-    page = 0
-    while max_pages == 0 or page < max_pages:
-        url = build_search_url(
-            category=args.category,
-            site=args.site,
-            subcategory=args.subcategory,
-            query=args.query,
-            location=args.location,
-            radius=args.radius,
-            price_from=args.price_from,
-            price_to=args.price_to,
-            page=page,
-        )
-
-        console.print(f"[dim]Fetching bazos page {page + 1}… {url}[/dim]")
-
-        try:
-            html = client.get(url)
-        except HTTPError as e:
-            if e.response is not None and e.response.status_code == 404:
-                break
-            console.print(f"[red]Error fetching page {page + 1}: {e}[/red]")
-            break
-        except Exception as e:
-            console.print(f"[red]Error fetching page {page + 1}: {e}[/red]")
-            break
-
-        if page == 0:
-            result.total_count = parse_total_count(html)
-
-        listings = parse_listings(html, site=args.site)
-        if not listings:
-            break
-
-        if args.strict_location and args.location:
-            loc = args.location.lower()
-            listings = [l for l in listings if l.city.lower() == loc]
-
-        if args.zip:
-            zip_norm = args.zip.replace(" ", "")
-            listings = [l for l in listings if l.postcode.replace(" ", "") == zip_norm]
-
-        if filter_re:
-            listings = [l for l in listings if filter_re.search(l.title)]
-
-        result.listings.extend(listings)
-        page += 1
-
-    # Fetch detail pages for m² data
-    total = len(result.listings)
-    if total:
-        console.print(f"[dim]Fetching bazos detail pages for m² data ({total} listings)…[/dim]")
-    for i, listing in enumerate(result.listings, 1):
-        if not listing.url:
-            continue
-        # Fix subdomain: detail URLs default to www.bazos.xx but need category subdomain
-        listing.url = listing.url.replace(
-            f"://www.{args.site}", f"://{args.category}.{args.site}"
-        )
-        detail_url = listing.url
-        try:
-            console.print(f"[dim]  Detail {i}/{total}…[/dim]")
-            detail_html = client.get(detail_url)
-            area = parse_detail_area(detail_html)
-            if area:
-                listing.area = area
-        except Exception:
-            pass
-
-    return result
-
-
-def _scrape_nehnutelnosti(
-    args: argparse.Namespace,
-    client: BazosClient,
-    console: Console,
-    filter_re: re.Pattern | None,
-    max_pages: int,
-) -> SearchResult:
-    if args.category != "reality":
-        console.print(
-            "[yellow]Warning: nehnutelnosti.sk only covers real estate. "
-            f"--category '{args.category}' ignored.[/yellow]"
-        )
-    if args.zip:
-        console.print("[yellow]Warning: --zip filter not supported for nehnutelnosti.sk (no postcode data).[/yellow]")
-
-    result = SearchResult(
-        query=args.query,
-        category="reality",
+        category=args.category,
+        subcategory=args.subcategory,
         location=args.location,
-        site="nehnutelnosti.sk",
+        radius=args.radius,
+        strict_location=args.strict_location,
+        zip_code=args.zip,
+        price_from=args.price_from,
+        price_to=args.price_to,
+        title_filter=args.filter,
+        pages=args.pages,
     )
 
-    page = 1
-    pages_fetched = 0
-    while max_pages == 0 or pages_fetched < max_pages:
-        url = build_nehnutelnosti_url(
-            query=args.query,
-            subcategory=args.subcategory,
-            location=args.location,
-            price_from=args.price_from,
-            price_to=args.price_to,
-            page=page,
-        )
 
-        console.print(f"[dim]Fetching nehnutelnosti page {page}… {url}[/dim]")
-
-        try:
-            html = client.get(url)
-        except Exception as e:
-            console.print(f"[red]Error fetching nehnutelnosti page {page}: {e}[/red]")
-            break
-
-        if pages_fetched == 0:
-            result.total_count = parse_nehnutelnosti_total_count(html)
-
-        listings = parse_nehnutelnosti_listings(html)
-        if not listings:
-            break
-
-        if args.location:
-            for listing in listings:
-                if not listing.city:
-                    listing.city = args.location
-
-        if filter_re:
-            listings = [l for l in listings if filter_re.search(l.title)]
-
-        result.listings.extend(listings)
-        pages_fetched += 1
-        page += 1
-
-    return result
-
-
-def _scrape_topreality(
-    args: argparse.Namespace,
-    client: BazosClient,
-    console: Console,
-    filter_re: re.Pattern | None,
-    max_pages: int,
-) -> SearchResult:
-    if args.category != "reality":
-        console.print(
-            "[yellow]Warning: topreality.sk only covers real estate. "
-            f"--category '{args.category}' ignored.[/yellow]"
-        )
-    if args.zip:
-        console.print("[yellow]Warning: --zip filter not supported for topreality.sk (no postcode data).[/yellow]")
-
-    result = SearchResult(
-        query=args.query,
-        category="reality",
-        location=args.location,
-        site="topreality.sk",
-    )
-
-    # Resolve location name to topreality district ID
-    location_id = ""
-    if args.location:
-        console.print(f"[dim]Resolving topreality location for '{args.location}'…[/dim]")
-        location_id = resolve_location(args.location)
-        if location_id:
-            console.print(f"[dim]Resolved to: {location_id}[/dim]")
-        else:
-            console.print(f"[yellow]Warning: could not resolve location '{args.location}' on topreality.sk[/yellow]")
-
-    page = 1
-    pages_fetched = 0
-    while max_pages == 0 or pages_fetched < max_pages:
-        url = build_topreality_url(
-            query=args.query,
-            subcategory=args.subcategory,
-            location_id=location_id,
-            price_from=args.price_from,
-            price_to=args.price_to,
-            page=page,
-        )
-
-        console.print(f"[dim]Fetching topreality page {page}… {url}[/dim]")
-
-        try:
-            html = client.get(url)
-        except Exception as e:
-            console.print(f"[red]Error fetching topreality page {page}: {e}[/red]")
-            break
-
-        if pages_fetched == 0:
-            result.total_count = parse_topreality_total_count(html)
-
-        listings = parse_topreality_listings(html)
-        if not listings:
-            break
-
-        if args.location:
-            for listing in listings:
-                if not listing.city:
-                    listing.city = args.location
-
-        if args.strict_location and args.location:
-            loc = args.location.lower()
-            listings = [l for l in listings if l.city.lower() == loc]
-
-        if filter_re:
-            listings = [l for l in listings if filter_re.search(l.title)]
-
-        result.listings.extend(listings)
-        pages_fetched += 1
-        page += 1
-
-    return result
-
-
-def main(argv: list[str] | None = None) -> None:
-    args = parse_args(argv)
+def cmd_search(args: argparse.Namespace) -> int:
     console = Console()
+
+    if args.report == "cma" and args.cma_area is None:
+        console.print("[red]--report cma requires --cma-area FLOAT[/red]")
+        return 2
+
     client = BazosClient()
+    results: list[SearchResult] = scrape(params_from_args(args), client)
+    all_listings = [l for r in results for l in r.listings]
 
-    max_pages = args.pages if args.pages is not None else (0 if not args.query else 1)
-    filter_re = re.compile(args.filter, re.IGNORECASE) if args.filter else None
+    # Post-scrape pipeline: segment, persist, flag outliers.
+    from flatview.analytics import annotate_segments, flag_outliers_iqr
 
-    results: list[SearchResult] = []
+    annotate_segments(all_listings)
 
-    if args.source in ("bazos", "all"):
-        results.append(_scrape_bazos(args, client, console, filter_re, max_pages))
+    conn = None
+    if all_listings and not args.no_store:
+        from pathlib import Path
 
-    if args.source in ("nehnutelnosti", "all"):
-        results.append(
-            _scrape_nehnutelnosti(args, client, console, filter_re, max_pages)
+        from flatview.storage import (
+            backfill_history,
+            default_db_path,
+            open_db,
+            upsert_listings,
         )
 
-    if args.source in ("topreality", "all"):
-        results.append(
-            _scrape_topreality(args, client, console, filter_re, max_pages)
-        )
+        db_path = Path(args.db_path) if args.db_path else default_db_path()
+        try:
+            conn = open_db(db_path)
+            upsert_listings(conn, all_listings)
+            backfill_history(conn, all_listings)
+        except Exception as e:
+            console.print(f"[yellow]Storage disabled: {e}[/yellow]")
+            conn = None
+
+    if all_listings:
+        n_flagged, _ = flag_outliers_iqr(all_listings)
+        if n_flagged:
+            console.print(f"[yellow]Flagged {n_flagged} outliers on EUR/m² (IQR fence).[/yellow]")
 
     if len(results) == 1:
-        print_results(results[0], filter_pattern=args.filter)
+        print_results(results[0], filter_pattern=args.filter, exclude_outliers=args.remove_outliers)
     else:
-        print_multi_results(results, filter_pattern=args.filter)
+        print_multi_results(
+            results, filter_pattern=args.filter, exclude_outliers=args.remove_outliers
+        )
 
     # Export
-    if args.export:
+    if args.export and all_listings:
         from flatview.export import export_csv, export_pdf, export_xlsx
-
-        all_listings = [l for r in results for l in r.listings]
-        if not all_listings:
-            return
+        from flatview.html_report import render_report
 
         formats = [f.strip().lower() for f in args.export.split(",")]
         slug = re.sub(r"[^\w]+", "_", f"{args.query}_{args.location}".strip("_"))[:40]
@@ -381,8 +279,195 @@ def main(argv: list[str] | None = None) -> None:
                 title = f"{args.query} - {args.location} - {date.today().isoformat()}"
                 export_pdf(all_listings, path, title=title)
                 console.print(f"[green]Exported PDF: {path}[/green]")
+            elif fmt == "html":
+                from pathlib import Path
+
+                suffix = "_cma" if args.report == "cma" else ""
+                html_path = Path(f"{base}{suffix}.html")
+                render_report(
+                    all_listings,
+                    query=args.query,
+                    location=args.location,
+                    sources=[r.site for r in results if r.listings],
+                    out_path=html_path,
+                    mode=args.report,
+                    cma_target_area=args.cma_area,
+                    history_conn=conn,
+                    exclude_outliers=args.remove_outliers,
+                )
+                console.print(f"[green]Exported HTML: {html_path}[/green]")
             else:
                 console.print(f"[yellow]Unknown export format: {fmt}[/yellow]")
+
+    if conn is not None:
+        conn.close()
+    return 0
+
+
+def cmd_watch(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from rich.table import Table
+
+    from flatview.errors import FlatviewError
+    from flatview.storage import default_db_path, open_db
+    from flatview.watches import Watch, add_watch, list_watches, remove_watch
+
+    console = Console()
+    db_path = Path(args.db_path) if args.db_path else default_db_path()
+    conn = open_db(db_path)
+    try:
+        if args.watch_command == "add":
+            watch = Watch(name=args.name, params=params_from_args(args))
+            try:
+                add_watch(conn, watch)
+            except FlatviewError as e:
+                console.print(f"[red]{e}[/red]")
+                return 2
+            console.print(f"[green]Added watch '{args.name}'.[/green]")
+
+        elif args.watch_command == "list":
+            watches = list_watches(conn, include_inactive=args.all)
+            if not watches:
+                console.print(
+                    "[yellow]No watches saved. Add one with `flatview watch add`.[/yellow]"
+                )
+                return 0
+            table = Table(title="Watches")
+            table.add_column("Name", style="bold")
+            table.add_column("Query")
+            table.add_column("Source")
+            table.add_column("Location")
+            table.add_column("Subcategory")
+            table.add_column("Price", justify="right")
+            table.add_column("Pages", justify="right")
+            table.add_column("Created", width=12)
+            for w in watches:
+                p = w.params
+                price = ""
+                if p.price_from is not None or p.price_to is not None:
+                    price = f"{p.price_from or ''}–{p.price_to or ''}"
+                name = w.name if w.active else f"[dim]{w.name} (inactive)[/dim]"
+                table.add_row(
+                    name,
+                    p.query,
+                    p.source,
+                    p.location,
+                    p.subcategory,
+                    price,
+                    "all" if p.pages in (0, None) else str(p.pages),
+                    w.created_at[:10],
+                )
+            console.print(table)
+
+        elif args.watch_command == "remove":
+            if remove_watch(conn, args.name):
+                console.print(f"[green]Removed watch '{args.name}'.[/green]")
+            else:
+                console.print(f"[red]No watch named '{args.name}'.[/red]")
+                return 2
+
+        return 0
+    finally:
+        conn.close()
+
+
+def cmd_track(args: argparse.Namespace) -> int:
+    from datetime import datetime
+    from pathlib import Path
+
+    from flatview.config import default_digest_dir, load_config
+    from flatview.digest import (
+        digest_subject,
+        has_events,
+        render_digest,
+        render_digest_text,
+        write_digest,
+    )
+    from flatview.errors import ConfigError, EmailError
+    from flatview.track import run_track
+
+    console = Console()
+    try:
+        config = load_config(Path(args.config) if args.config else None)
+    except ConfigError as e:
+        console.print(f"[red]{e}[/red]")
+        return 2
+
+    code, all_events = run_track(
+        db_path=Path(args.db_path) if args.db_path else None,
+        watch_name=args.watch,
+        dry_run=args.dry_run,
+        delist_after_days=config.tracking.delist_after_days,
+    )
+
+    for ev in all_events:
+        if ev.error:
+            console.print(f"[red]{ev.watch.name}: failed — {ev.error}[/red]")
+        elif ev.is_baseline:
+            console.print(
+                f"[cyan]{ev.watch.name}[/cyan]: baseline run, "
+                f"{ev.n_listings} listings recorded (new-listing alerts start next run)"
+            )
+        else:
+            console.print(
+                f"[cyan]{ev.watch.name}[/cyan]: {ev.n_listings} listings — "
+                f"[green]{len(ev.new)} new[/green], "
+                f"{len(ev.price_drops)} price drops, "
+                f"{len(ev.delisted)} delisted, "
+                f"{len(ev.bargains)} bargains"
+            )
+    if args.dry_run:
+        if all_events:
+            console.print("[dim]Dry run: nothing was written.[/dim]")
+        return code
+
+    if all_events:
+        now = datetime.now()
+        html = render_digest(all_events, generated_at=now)
+        digest_dir = config.tracking.digest_dir or default_digest_dir()
+        digest_path = write_digest(html, digest_dir, now)
+        console.print(f"[green]Digest written: {digest_path}[/green]")
+
+        should_email = (
+            config.smtp is not None
+            and not args.no_email
+            and (has_events(all_events) or not config.tracking.email_only_on_events)
+        )
+        if should_email:
+            from flatview.emailer import send_html_email
+
+            assert config.smtp is not None
+            try:
+                send_html_email(
+                    smtp=config.smtp,
+                    subject=digest_subject(all_events),
+                    html=html,
+                    text_fallback=render_digest_text(all_events),
+                )
+                console.print("[green]Digest email sent.[/green]")
+            except EmailError as e:
+                console.print(f"[red]{e}[/red]")
+                console.print(f"[yellow]Digest file remains at {digest_path}.[/yellow]")
+                code = code or 1
+    return code
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    setup_logging(verbose=getattr(args, "verbose", False))
+
+    if args.command == "search":
+        code = cmd_search(args)
+    elif args.command == "watch":
+        code = cmd_watch(args)
+    elif args.command == "track":
+        code = cmd_track(args)
+    else:  # pragma: no cover — argparse rejects unknown commands
+        code = 2
+
+    if code:
+        raise SystemExit(code)
 
 
 if __name__ == "__main__":

@@ -1,16 +1,12 @@
 import csv
 
-import pytest
-
 from flatview.export import (
     _location_str,
-    _price_per_m2,
     _strip_diacritics,
     export_csv,
     export_pdf,
     export_xlsx,
 )
-
 
 # --- Helper function tests ---
 
@@ -19,21 +15,6 @@ def test_strip_diacritics():
     assert _strip_diacritics("Košice") == "Kosice"
     assert _strip_diacritics("Žilina") == "Zilina"
     assert _strip_diacritics("ASCII") == "ASCII"
-
-
-def test_price_per_m2(make_listing):
-    l = make_listing(price=120000.0, area=60.0)
-    assert _price_per_m2(l) == 2000.0
-
-
-def test_price_per_m2_no_area(make_listing):
-    l = make_listing(price=120000.0, area=None)
-    assert _price_per_m2(l) is None
-
-
-def test_price_per_m2_no_price(make_listing):
-    l = make_listing(price=None, area=60.0)
-    assert _price_per_m2(l) is None
 
 
 def test_location_str_city_and_postcode(make_listing):
@@ -65,10 +46,22 @@ def test_export_csv_content(tmp_path, make_listing):
         reader = csv.reader(f)
         rows = list(reader)
 
-    assert rows[0] == ["#", "Source", "Title", "Price (EUR)", "Area (m2)", "EUR/m2", "Location", "Date", "URL"]
+    assert rows[0] == [
+        "#",
+        "Source",
+        "Segment",
+        "Title",
+        "Price (EUR)",
+        "Area (m2)",
+        "EUR/m2",
+        "Location",
+        "Date",
+        "URL",
+    ]
     assert rows[1][1] == "bazos"
-    assert rows[1][2] == "Test Byt"
-    assert rows[1][3] == "100000.0"
+    # rows[1][2] is the segment column (empty for unknown)
+    assert rows[1][3] == "Test Byt"
+    assert rows[1][4] == "100000.0"
 
 
 def test_export_csv_summary_rows(tmp_path, make_listing):
@@ -83,6 +76,24 @@ def test_export_csv_summary_rows(tmp_path, make_listing):
     assert "Median" in content
     assert "Min" in content
     assert "Max" in content
+    assert "P25" in content
+    assert "P75" in content
+
+
+def test_export_csv_outlier_side_markers(tmp_path, make_listing):
+    path = tmp_path / "test.csv"
+    bargain = make_listing(title="Lacný", price=10_000, area=50)
+    bargain.is_outlier = True
+    bargain.outlier_side = "bargain"
+    overpriced = make_listing(title="Drahý", price=900_000, area=50)
+    overpriced.is_outlier = True
+    overpriced.outlier_side = "overpriced"
+    export_csv([bargain, overpriced], str(path))
+
+    content = path.read_text()
+    assert "*bargain" in content
+    assert "*overpriced" in content
+    assert "(1 bargain, 1 overpriced)" in content
 
 
 # --- XLSX export tests ---

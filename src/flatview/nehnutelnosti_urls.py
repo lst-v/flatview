@@ -4,7 +4,6 @@ import re
 import unicodedata
 from urllib.parse import urlencode
 
-
 TRANSACTION_MAP = {
     "predam": "predaj",
     "prenajmu": "prenajom",

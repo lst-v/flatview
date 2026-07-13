@@ -1,6 +1,8 @@
-import pytest
+from flatview.parser import AREA_RE, _parse_price, parse_detail, parse_listings, parse_total_count
 
-from flatview.parser import AREA_RE, _parse_price, parse_detail_area, parse_listings, parse_total_count
+
+def parse_detail_area(html):
+    return parse_detail(html)[0]
 
 
 # --- Minimal HTML fixtures ---
@@ -120,7 +122,10 @@ def test_parse_total_count_missing():
 
 
 def test_parse_area_m2_unicode():
-    html = '<div class="maincontent">OK</div><div class="popisdetail">Byt o výmere 65 m² na predaj</div>'
+    html = (
+        '<div class="maincontent">OK</div>'
+        '<div class="popisdetail">Byt o výmere 65 m² na predaj</div>'
+    )
     assert parse_detail_area(html) == 65.0
 
 
@@ -135,7 +140,9 @@ def test_parse_area_comma_decimal():
 
 
 def test_parse_area_deleted_listing():
-    html = '<div class="maincontent">Inzerát bol vymazaný.</div><div class="popisdetail">65 m²</div>'
+    html = (
+        '<div class="maincontent">Inzerát bol vymazaný.</div><div class="popisdetail">65 m²</div>'
+    )
     assert parse_detail_area(html) is None
 
 

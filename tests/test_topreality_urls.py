@@ -10,13 +10,13 @@ def test_basic_url():
 
 def test_subcategory_mapping():
     url = build_topreality_url(subcategory="predam/byt")
-    assert "form=1" in url    # Predám
+    assert "form=1" in url  # Predám
     assert "type%5B%5D=103" in url or "type[]=103" in url  # 2 izbový byt
 
 
 def test_rental_mapping():
     url = build_topreality_url(subcategory="prenajmu/dom")
-    assert "form=3" in url    # Prenájom
+    assert "form=3" in url  # Prenájom
     assert "type%5B%5D=204" in url or "type[]=204" in url  # Rodinný dom
 
 
