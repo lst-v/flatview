@@ -4,9 +4,8 @@ import argparse
 import re
 from datetime import date
 
-from rich.console import Console
-
 from requests import HTTPError
+from rich.console import Console
 
 from flatview.client import BazosClient
 from flatview.display import print_multi_results, print_results
@@ -30,9 +29,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         prog="flatview",
         description="Search bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk classified ads.",
     )
-    parser.add_argument(
-        "query", nargs="?", default="", help="Search query (e.g. '2 izbový byt')"
-    )
+    parser.add_argument("query", nargs="?", default="", help="Search query (e.g. '2 izbový byt')")
     parser.add_argument(
         "--category",
         default="reality",
@@ -52,12 +49,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Only show listings where city matches --location exactly",
     )
-    parser.add_argument(
-        "--price-from", type=int, default=None, help="Minimum price filter"
-    )
-    parser.add_argument(
-        "--price-to", type=int, default=None, help="Maximum price filter"
-    )
+    parser.add_argument("--price-from", type=int, default=None, help="Minimum price filter")
+    parser.add_argument("--price-to", type=int, default=None, help="Maximum price filter")
     parser.add_argument(
         "--site",
         default="bazos.sk",
@@ -99,7 +92,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--remove-outliers",
         action="store_true",
-        help="Exclude IQR outliers (on EUR/m²) from stats and charts. Listings still shown, tagged.",
+        help=(
+            "Exclude IQR outliers (on EUR/m²) from stats and charts. Listings still shown, tagged."
+        ),
     )
     parser.add_argument(
         "--report",
@@ -196,9 +191,7 @@ def _scrape_bazos(
         if not listing.url:
             continue
         # Fix subdomain: detail URLs default to www.bazos.xx but need category subdomain
-        listing.url = listing.url.replace(
-            f"://www.{args.site}", f"://{args.category}.{args.site}"
-        )
+        listing.url = listing.url.replace(f"://www.{args.site}", f"://{args.category}.{args.site}")
         detail_url = listing.url
         try:
             console.print(f"[dim]  Detail {i}/{total}…[/dim]")
@@ -227,7 +220,10 @@ def _scrape_nehnutelnosti(
             f"--category '{args.category}' ignored.[/yellow]"
         )
     if args.zip:
-        console.print("[yellow]Warning: --zip filter not supported for nehnutelnosti.sk (no postcode data).[/yellow]")
+        console.print(
+            "[yellow]Warning: --zip filter not supported for nehnutelnosti.sk "
+            "(no postcode data).[/yellow]"
+        )
 
     result = SearchResult(
         query=args.query,
@@ -291,7 +287,10 @@ def _scrape_topreality(
             f"--category '{args.category}' ignored.[/yellow]"
         )
     if args.zip:
-        console.print("[yellow]Warning: --zip filter not supported for topreality.sk (no postcode data).[/yellow]")
+        console.print(
+            "[yellow]Warning: --zip filter not supported for topreality.sk "
+            "(no postcode data).[/yellow]"
+        )
 
     result = SearchResult(
         query=args.query,
@@ -308,7 +307,10 @@ def _scrape_topreality(
         if location_id:
             console.print(f"[dim]Resolved to: {location_id}[/dim]")
         else:
-            console.print(f"[yellow]Warning: could not resolve location '{args.location}' on topreality.sk[/yellow]")
+            console.print(
+                f"[yellow]Warning: could not resolve location '{args.location}' "
+                "on topreality.sk[/yellow]"
+            )
 
     page = 1
     pages_fetched = 0
@@ -374,14 +376,10 @@ def main(argv: list[str] | None = None) -> None:
         results.append(_scrape_bazos(args, client, console, filter_re, max_pages))
 
     if args.source in ("nehnutelnosti", "all"):
-        results.append(
-            _scrape_nehnutelnosti(args, client, console, filter_re, max_pages)
-        )
+        results.append(_scrape_nehnutelnosti(args, client, console, filter_re, max_pages))
 
     if args.source in ("topreality", "all"):
-        results.append(
-            _scrape_topreality(args, client, console, filter_re, max_pages)
-        )
+        results.append(_scrape_topreality(args, client, console, filter_re, max_pages))
 
     all_listings = [l for r in results for l in r.listings]
 
@@ -393,6 +391,7 @@ def main(argv: list[str] | None = None) -> None:
     conn = None
     if all_listings and not args.no_store:
         from pathlib import Path
+
         from flatview.storage import (
             backfill_history,
             default_db_path,
@@ -412,16 +411,14 @@ def main(argv: list[str] | None = None) -> None:
     if all_listings:
         n_flagged, _ = flag_outliers_iqr(all_listings)
         if n_flagged:
-            console.print(
-                f"[yellow]Flagged {n_flagged} outliers on EUR/m² (IQR fence).[/yellow]"
-            )
+            console.print(f"[yellow]Flagged {n_flagged} outliers on EUR/m² (IQR fence).[/yellow]")
 
     if len(results) == 1:
-        print_results(results[0], filter_pattern=args.filter,
-                      exclude_outliers=args.remove_outliers)
+        print_results(results[0], filter_pattern=args.filter, exclude_outliers=args.remove_outliers)
     else:
-        print_multi_results(results, filter_pattern=args.filter,
-                            exclude_outliers=args.remove_outliers)
+        print_multi_results(
+            results, filter_pattern=args.filter, exclude_outliers=args.remove_outliers
+        )
 
     # Export
     if args.export and all_listings:
@@ -448,20 +445,21 @@ def main(argv: list[str] | None = None) -> None:
                 console.print(f"[green]Exported PDF: {path}[/green]")
             elif fmt == "html":
                 from pathlib import Path
+
                 suffix = "_cma" if args.report == "cma" else ""
-                path = Path(f"{base}{suffix}.html")
+                html_path = Path(f"{base}{suffix}.html")
                 render_report(
                     all_listings,
                     query=args.query,
                     location=args.location,
                     sources=[r.site for r in results if r.listings],
-                    out_path=path,
+                    out_path=html_path,
                     mode=args.report,
                     cma_target_area=args.cma_area,
                     history_conn=conn,
                     exclude_outliers=args.remove_outliers,
                 )
-                console.print(f"[green]Exported HTML: {path}[/green]")
+                console.print(f"[green]Exported HTML: {html_path}[/green]")
             else:
                 console.print(f"[yellow]Unknown export format: {fmt}[/yellow]")
 

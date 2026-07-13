@@ -16,6 +16,7 @@ import plotly.express as px
 from jinja2 import Template
 
 from flatview.analytics import (
+    compute_percentiles,
     compute_stats,
     iqr_fence,
     price_per_m2,
@@ -23,7 +24,6 @@ from flatview.analytics import (
 )
 from flatview.models import Listing
 from flatview.storage import median_pm2_over_time, query_recent_count
-
 
 _TEMPLATE = Template(
     """<!doctype html>
@@ -81,19 +81,21 @@ _TEMPLATE = Template(
 def _listings_to_df(listings: list[Listing]) -> pd.DataFrame:
     rows = []
     for l in listings:
-        rows.append({
-            "title": l.title,
-            "source": l.source,
-            "segment": l.segment,
-            "price": l.price,
-            "area": l.area,
-            "pm2": price_per_m2(l),
-            "city": l.city,
-            "url": l.url,
-            "is_outlier": l.is_outlier,
-            "first_seen": l.first_seen,
-            "previous_price": l.previous_price,
-        })
+        rows.append(
+            {
+                "title": l.title,
+                "source": l.source,
+                "segment": l.segment,
+                "price": l.price,
+                "area": l.area,
+                "pm2": price_per_m2(l),
+                "city": l.city,
+                "url": l.url,
+                "is_outlier": l.is_outlier,
+                "first_seen": l.first_seen,
+                "previous_price": l.previous_price,
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -122,8 +124,7 @@ def _stat_table(label: str, stats: dict, currency: str) -> str:
         ("Max", price.get("max"), pm2.get("max")),
     ]
     body = "\n".join(
-        f"<tr><td>{name}</td><td>{_fmt(p)}</td><td>{_fmt(m)}</td></tr>"
-        for name, p, m in rows
+        f"<tr><td>{name}</td><td>{_fmt(p)}</td><td>{_fmt(m)}</td></tr>" for name, p, m in rows
     )
     return (
         f"<h3>{label}</h3>"
@@ -156,8 +157,11 @@ def _build_charts(df: pd.DataFrame, exclude_outliers: bool) -> list[str]:
     price_df = work[work["price"].notna()]
     if not price_df.empty:
         fig = px.histogram(
-            price_df, x="price", color="segment",
-            nbins=30, title="Price distribution",
+            price_df,
+            x="price",
+            color="segment",
+            nbins=30,
+            title="Price distribution",
             color_discrete_map={"new": "#0a7f33", "resale": "#1f6feb", "unknown": "#888"},
         )
         charts.append(fig.to_html(full_html=False, include_plotlyjs="cdn"))
@@ -165,8 +169,11 @@ def _build_charts(df: pd.DataFrame, exclude_outliers: bool) -> list[str]:
     pm2_df = work[work["pm2"].notna()]
     if not pm2_df.empty:
         fig = px.histogram(
-            pm2_df, x="pm2", color="segment",
-            nbins=30, title="€/m² distribution",
+            pm2_df,
+            x="pm2",
+            color="segment",
+            nbins=30,
+            title="€/m² distribution",
             color_discrete_map={"new": "#0a7f33", "resale": "#1f6feb", "unknown": "#888"},
         )
         charts.append(fig.to_html(full_html=False, include_plotlyjs=False))
@@ -174,7 +181,10 @@ def _build_charts(df: pd.DataFrame, exclude_outliers: bool) -> list[str]:
     scatter_df = work[work["price"].notna() & work["area"].notna()]
     if not scatter_df.empty:
         fig = px.scatter(
-            scatter_df, x="area", y="price", color="segment",
+            scatter_df,
+            x="area",
+            y="price",
+            color="segment",
             hover_data=["title", "city", "url"],
             title="Area vs price",
             color_discrete_map={"new": "#0a7f33", "resale": "#1f6feb", "unknown": "#888"},
@@ -183,8 +193,12 @@ def _build_charts(df: pd.DataFrame, exclude_outliers: bool) -> list[str]:
 
     if not pm2_df.empty and pm2_df["source"].nunique() > 1:
         fig = px.box(
-            pm2_df, x="source", y="pm2", color="source",
-            title="€/m² by source", points="outliers",
+            pm2_df,
+            x="source",
+            y="pm2",
+            color="source",
+            title="€/m² by source",
+            points="outliers",
         )
         charts.append(fig.to_html(full_html=False, include_plotlyjs=False))
 
@@ -200,8 +214,11 @@ def _build_history_chart(conn: sqlite3.Connection | None) -> str | None:
     df = pd.DataFrame(series, columns=["observed_at", "median_pm2"])
     df["observed_at"] = pd.to_datetime(df["observed_at"])
     fig = px.line(
-        df, x="observed_at", y="median_pm2",
-        title="Median €/m² over time (across all stored observations)", markers=True,
+        df,
+        x="observed_at",
+        y="median_pm2",
+        title="Median €/m² over time (across all stored observations)",
+        markers=True,
     )
     return fig.to_html(full_html=False, include_plotlyjs=False)
 
@@ -214,7 +231,8 @@ def _build_outlier_section(listings: list[Listing]) -> str:
     fence_str = (
         f"<p class='small'>IQR fence on €/m²: "
         f"<strong>{fence[0]:,.0f}</strong> – <strong>{fence[1]:,.0f}</strong>.</p>"
-        if fence else ""
+        if fence
+        else ""
     )
     rows = "\n".join(
         f"<tr class='outlier'><td><a href='{l.url}'>{l.title}</a></td>"
@@ -236,8 +254,8 @@ def _build_comparables(listings: list[Listing], n: int = 10) -> str:
     pool = [l for l in listings if not l.is_outlier and price_per_m2(l) is not None]
     if not pool:
         return ""
-    pm2s = sorted(price_per_m2(l) for l in pool)
-    median = pm2s[len(pm2s) // 2]
+    pm2s = [pm2 for l in pool if (pm2 := price_per_m2(l)) is not None]
+    median = compute_percentiles(pm2s, (50,))[50]
     pool.sort(key=lambda l: abs((price_per_m2(l) or 0) - median))
     top = pool[:n]
     rows = "\n".join(
@@ -262,8 +280,7 @@ def _build_cma_view(
     conn: sqlite3.Connection | None,
 ) -> str:
     candidates = [
-        l for l in listings
-        if l.area is not None and l.price is not None and not l.is_outlier
+        l for l in listings if l.area is not None and l.price is not None and not l.is_outlier
     ]
     if not candidates:
         return "<h2>CMA</h2><p>No comparable listings available.</p>"
@@ -275,7 +292,7 @@ def _build_cma_view(
     band = [l for l in top if l.area and abs(l.area - target_area) <= target_area * 0.25]
     band = band or top
 
-    pm2_vals = sorted(price_per_m2(l) for l in band if price_per_m2(l) is not None)
+    pm2_vals = sorted(pm2 for l in band if (pm2 := price_per_m2(l)) is not None)
     if not pm2_vals:
         return "<h2>CMA</h2><p>No €/m² data among comparables.</p>"
 
@@ -286,9 +303,7 @@ def _build_cma_view(
     rec_mid = pcts[50] * target_area
     rec_high = pcts[75] * target_area
 
-    velocity_30d = (
-        query_recent_count(conn, days=30) if conn is not None else None
-    )
+    velocity_30d = query_recent_count(conn, days=30) if conn is not None else None
     currency = top[0].currency or "EUR"
 
     rows = "\n".join(

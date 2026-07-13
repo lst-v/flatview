@@ -5,19 +5,13 @@ import os
 import unicodedata
 from pathlib import Path
 
-from flatview.analytics import compute_stats
+from flatview.analytics import compute_stats, price_per_m2
 from flatview.models import Listing
 
 
 def _strip_diacritics(s: str) -> str:
     """Strip diacritics for PDF rendering (Helvetica doesn't support them)."""
     return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
-
-
-def _price_per_m2(listing: Listing) -> float | None:
-    if listing.price and listing.area and listing.area > 0:
-        return listing.price / listing.area
-    return None
 
 
 def _location_str(listing: Listing) -> str:
@@ -59,14 +53,22 @@ def _summary_rows(listings: list[Listing]) -> list[list]:
 
 
 HEADERS = [
-    "#", "Source", "Segment", "Title", "Price (EUR)", "Area (m2)",
-    "EUR/m2", "Location", "Date", "URL",
+    "#",
+    "Source",
+    "Segment",
+    "Title",
+    "Price (EUR)",
+    "Area (m2)",
+    "EUR/m2",
+    "Location",
+    "Date",
+    "URL",
 ]
 
 
 def _listing_row(i: int, l: Listing) -> list:
-    pm2 = _price_per_m2(l)
-    segment = l.segment if l.segment != "unknown" else ""
+    pm2 = price_per_m2(l)
+    segment: str = l.segment if l.segment != "unknown" else ""
     if l.is_outlier:
         segment = f"{segment}*" if segment else "*"
     return [
@@ -147,19 +149,27 @@ def export_pdf(listings: list[Listing], path: str | Path, title: str = "Listings
 
     col_widths = [8, 18, 14, 70, 22, 16, 20, 32, 20, 47]
     col_headers = [
-        "#", "Source", "Seg", "Title", "Price (EUR)", "Area", "EUR/m2",
-        "Location", "Date", "URL",
+        "#",
+        "Source",
+        "Seg",
+        "Title",
+        "Price (EUR)",
+        "Area",
+        "EUR/m2",
+        "Location",
+        "Date",
+        "URL",
     ]
 
     pdf.set_font("Helvetica", "B", 7)
-    for w, h in zip(col_widths, col_headers):
+    for w, h in zip(col_widths, col_headers, strict=True):
         pdf.cell(w, 5, h, border=1)
     pdf.ln()
 
     pdf.set_font("Helvetica", "", 6)
     for i, l in enumerate(listings, 1):
-        pm2 = _price_per_m2(l)
-        seg = l.segment if l.segment != "unknown" else ""
+        pm2 = price_per_m2(l)
+        seg: str = l.segment if l.segment != "unknown" else ""
         if l.is_outlier:
             seg = f"{seg}*" if seg else "*"
         vals = [
@@ -175,7 +185,7 @@ def export_pdf(listings: list[Listing], path: str | Path, title: str = "Listings
             (l.url or "")[:45],
         ]
         vals = [_strip_diacritics(v) for v in vals]
-        for w, v in zip(col_widths, vals):
+        for w, v in zip(col_widths, vals, strict=True):
             pdf.cell(w, 4, v, border=1)
         pdf.ln()
 
@@ -187,38 +197,46 @@ def export_pdf(listings: list[Listing], path: str | Path, title: str = "Listings
 
     stats = compute_stats(listings)
     price = stats.get("price") or {}
-    pm2 = stats.get("pm2") or {}
+    pm2_stats = stats.get("pm2") or {}
 
     def fmt(v):
         return f"{v:,.0f}" if isinstance(v, (int, float)) else "-"
 
     pdf.cell(
-        0, 5,
-        f"Listings with price: {price.get('n', 0)}  |  Listings with area: {pm2.get('n', 0)}",
-        new_x=XPos.LMARGIN, new_y=YPos.NEXT,
+        0,
+        5,
+        f"Listings with price: {price.get('n', 0)}  |  Listings with area: {pm2_stats.get('n', 0)}",
+        new_x=XPos.LMARGIN,
+        new_y=YPos.NEXT,
     )
     if price.get("n"):
         pdf.cell(
-            0, 5,
+            0,
+            5,
             f"Price - P10 {fmt(price.get('p10'))}  P25 {fmt(price.get('p25'))}  "
             f"P50 {fmt(price.get('p50'))}  P75 {fmt(price.get('p75'))}  "
             f"P90 {fmt(price.get('p90'))}  avg {fmt(price.get('avg'))}",
-            new_x=XPos.LMARGIN, new_y=YPos.NEXT,
+            new_x=XPos.LMARGIN,
+            new_y=YPos.NEXT,
         )
-    if pm2.get("n"):
+    if pm2_stats.get("n"):
         pdf.cell(
-            0, 5,
-            f"EUR/m2 - P10 {fmt(pm2.get('p10'))}  P25 {fmt(pm2.get('p25'))}  "
-            f"P50 {fmt(pm2.get('p50'))}  P75 {fmt(pm2.get('p75'))}  "
-            f"P90 {fmt(pm2.get('p90'))}  avg {fmt(pm2.get('avg'))}",
-            new_x=XPos.LMARGIN, new_y=YPos.NEXT,
+            0,
+            5,
+            f"EUR/m2 - P10 {fmt(pm2_stats.get('p10'))}  P25 {fmt(pm2_stats.get('p25'))}  "
+            f"P50 {fmt(pm2_stats.get('p50'))}  P75 {fmt(pm2_stats.get('p75'))}  "
+            f"P90 {fmt(pm2_stats.get('p90'))}  avg {fmt(pm2_stats.get('avg'))}",
+            new_x=XPos.LMARGIN,
+            new_y=YPos.NEXT,
         )
     n_outliers = sum(1 for l in listings if l.is_outlier)
     if n_outliers:
         pdf.cell(
-            0, 5,
+            0,
+            5,
             f"Outliers flagged (EUR/m2 IQR): {n_outliers}",
-            new_x=XPos.LMARGIN, new_y=YPos.NEXT,
+            new_x=XPos.LMARGIN,
+            new_y=YPos.NEXT,
         )
 
     pdf.output(path)

@@ -40,9 +40,7 @@ def test_location_diacritics_stripped():
 
 def test_url_segment_order():
     """Order must be: property / location / transaction."""
-    url = build_nehnutelnosti_url(
-        query="2 izbový", subcategory="predam/byt", location="Michalovce"
-    )
+    url = build_nehnutelnosti_url(query="2 izbový", subcategory="predam/byt", location="Michalovce")
     parts = url.split("/vysledky/")[1].split("/")
     assert parts[0] == "2-izbove-byty"
     assert parts[1] == "michalovce"

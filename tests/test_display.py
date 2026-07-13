@@ -20,9 +20,12 @@ def test_exact_duplicate_cross_source(make_listing, make_search_result):
 
 
 def test_fuzzy_duplicate_above_threshold(make_listing, make_search_result):
-    bazos = make_listing(title="MASARYKOVÁ - Priestranný - 2 izbový byt - Čiastočná rekonštr", source="bazos")
+    bazos = make_listing(
+        title="MASARYKOVÁ - Priestranný - 2 izbový byt - Čiastočná rekonštr", source="bazos"
+    )
     neh = make_listing(
-        title="MASARYKOVÁ - Priestranný - 2 izbový byt - Čiastočná rekonštrukcia - Kompletne zariadený",
+        title="MASARYKOVÁ - Priestranný - 2 izbový byt - Čiastočná rekonštrukcia"
+        " - Kompletne zariadený",
         source="nehnutelnosti",
     )
     results = [
@@ -46,5 +49,8 @@ def test_below_threshold_not_flagged(make_listing, make_search_result):
 
 
 def test_empty_listings(make_search_result):
-    results = [make_search_result(listings=[]), make_search_result(listings=[], site="nehnutelnosti.sk")]
+    results = [
+        make_search_result(listings=[]),
+        make_search_result(listings=[], site="nehnutelnosti.sk"),
+    ]
     assert _find_duplicates(results) == set()

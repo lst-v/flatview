@@ -48,23 +48,38 @@ def test_invalid_site():
 
 
 def test_all_flags():
-    args = parse_args([
-        "query",
-        "--category", "auto",
-        "--subcategory", "predam/byt",
-        "--location", "Bratislava",
-        "--radius", "10",
-        "--strict-location",
-        "--price-from", "50000",
-        "--price-to", "200000",
-        "--site", "bazos.cz",
-        "--source", "all",
-        "--zip", "07101",
-        "--filter", "rekonštr",
-        "--pages", "5",
-        "--export", "csv,xlsx",
-        "--output-dir", "/tmp/out",
-    ])
+    args = parse_args(
+        [
+            "query",
+            "--category",
+            "auto",
+            "--subcategory",
+            "predam/byt",
+            "--location",
+            "Bratislava",
+            "--radius",
+            "10",
+            "--strict-location",
+            "--price-from",
+            "50000",
+            "--price-to",
+            "200000",
+            "--site",
+            "bazos.cz",
+            "--source",
+            "all",
+            "--zip",
+            "07101",
+            "--filter",
+            "rekonštr",
+            "--pages",
+            "5",
+            "--export",
+            "csv,xlsx",
+            "--output-dir",
+            "/tmp/out",
+        ]
+    )
     assert args.query == "query"
     assert args.category == "auto"
     assert args.subcategory == "predam/byt"

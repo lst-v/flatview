@@ -13,8 +13,8 @@ import sqlite3
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from flatview.analytics import compute_percentiles
 from flatview.models import Listing
-
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS listings (
@@ -87,8 +87,18 @@ def upsert_listings(
                     segment, first_seen, last_seen, last_price)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    l.source, key, l.url, l.title, l.city, l.postcode,
-                    l.area, l.currency, l.segment, observed_at, observed_at, l.price,
+                    l.source,
+                    key,
+                    l.url,
+                    l.title,
+                    l.city,
+                    l.postcode,
+                    l.area,
+                    l.currency,
+                    l.segment,
+                    observed_at,
+                    observed_at,
+                    l.price,
                 ),
             )
             if l.price is not None:
@@ -104,8 +114,17 @@ def upsert_listings(
                        segment=?, last_seen=?, last_price=?
                    WHERE source=? AND listing_key=?""",
                 (
-                    l.url, l.title, l.city, l.postcode, l.area, l.currency,
-                    l.segment, observed_at, l.price, l.source, key,
+                    l.url,
+                    l.title,
+                    l.city,
+                    l.postcode,
+                    l.area,
+                    l.currency,
+                    l.segment,
+                    observed_at,
+                    l.price,
+                    l.source,
+                    key,
                 ),
             )
             if l.price is not None and l.price != last_price:
@@ -158,9 +177,7 @@ def query_recent_count(
     return int(cur.fetchone()[0])
 
 
-def median_pm2_over_time(
-    conn: sqlite3.Connection, *, days: int = 180
-) -> list[tuple[str, float]]:
+def median_pm2_over_time(conn: sqlite3.Connection, *, days: int = 180) -> list[tuple[str, float]]:
     """Return [(observed_at, median_pm2)] across recent observations.
 
     Joins price_history with listings.area; only listings with area > 0 contribute.
@@ -179,7 +196,6 @@ def median_pm2_over_time(
             by_date.setdefault(observed_at, []).append(price / area)
     out: list[tuple[str, float]] = []
     for d in sorted(by_date):
-        vals = sorted(by_date[d])
-        m = vals[len(vals) // 2]
+        m = compute_percentiles(by_date[d], (50,))[50]
         out.append((d, m))
     return out

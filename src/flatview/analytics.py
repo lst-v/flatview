@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 from flatview.models import Listing, Segment
-
 
 _NEW_BUILD_PATTERNS = [
     re.compile(r"novostavb\w*", re.IGNORECASE),
@@ -71,9 +70,7 @@ def _basic_stats(values: list[float]) -> dict:
     }
 
 
-def compute_stats(
-    listings: list[Listing], *, exclude_outliers: bool = False
-) -> dict:
+def compute_stats(listings: list[Listing], *, exclude_outliers: bool = False) -> dict:
     """Return overall stats for price and €/m²."""
     pool = [l for l in listings if not (exclude_outliers and l.is_outlier)]
     prices = [l.price for l in pool if l.price is not None]
@@ -96,8 +93,7 @@ def flag_outliers_iqr(listings: list[Listing]) -> tuple[int, int]:
     for l in listings:
         l.is_outlier = False
 
-    pm2_pairs = [(l, price_per_m2(l)) for l in listings]
-    pm2_pairs = [(l, v) for l, v in pm2_pairs if v is not None]
+    pm2_pairs = [(l, v) for l in listings if (v := price_per_m2(l)) is not None]
     n = len(pm2_pairs)
     if n < 4:
         return 0, n
@@ -118,9 +114,7 @@ def flag_outliers_iqr(listings: list[Listing]) -> tuple[int, int]:
 
 def iqr_fence(listings: list[Listing]) -> tuple[float, float] | None:
     """Return the (low, high) €/m² fence used by flag_outliers_iqr, if computable."""
-    vals = sorted(
-        v for v in (price_per_m2(l) for l in listings) if v is not None
-    )
+    vals = sorted(v for v in (price_per_m2(l) for l in listings) if v is not None)
     if len(vals) < 4:
         return None
     pcts = compute_percentiles(vals, (25, 75))

@@ -5,9 +5,8 @@ import difflib
 from rich.console import Console
 from rich.table import Table
 
-from flatview.analytics import compute_stats, stats_by_segment
+from flatview.analytics import compute_stats, price_per_m2, stats_by_segment
 from flatview.models import Listing, SearchResult
-
 
 _SEG_STYLE = {
     "new": "[green]NEW[/green]",
@@ -112,11 +111,8 @@ def print_results(
         row.append(price_str)
         if has_area:
             area_str = f"{listing.area:.0f} m²" if listing.area else "[dim]—[/dim]"
-            pm2_str = (
-                f"{listing.price / listing.area:,.0f}"
-                if listing.price and listing.area
-                else "[dim]—[/dim]"
-            )
+            pm2 = price_per_m2(listing)
+            pm2_str = f"{pm2:,.0f}" if pm2 is not None else "[dim]—[/dim]"
             row.extend([area_str, pm2_str])
         row.extend([location, listing.date])
 
@@ -159,7 +155,8 @@ def print_multi_results(
         )
         if dup_count:
             console.print(
-                f"[yellow]Detected {dup_count} potential cross-source duplicates (marked with *)[/yellow]"
+                f"[yellow]Detected {dup_count} potential cross-source duplicates "
+                "(marked with *)[/yellow]"
             )
         _print_price_summary(console, all_listings, exclude_outliers=exclude_outliers)
 
@@ -211,9 +208,7 @@ def _print_price_summary(
     _print_block(console, "Stats", overall)
     if n_outliers:
         suffix = " (excluded from stats)" if exclude_outliers else " (still in stats)"
-        console.print(
-            f"[dim]Outliers: {n_outliers} flagged on EUR/m² IQR{suffix}.[/dim]"
-        )
+        console.print(f"[dim]Outliers: {n_outliers} flagged on EUR/m² IQR{suffix}.[/dim]")
     per_seg = stats_by_segment(listings, exclude_outliers=exclude_outliers)
     label_map = {"new": "New build", "resale": "Resale", "unknown": "Unclassified"}
     if len(per_seg) >= 2:

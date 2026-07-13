@@ -35,13 +35,15 @@ def _parse_card(card: Tag) -> Listing | None:
 
     title = title_el.get_text(strip=True)
     href = title_el.get("href", "")
+    if not isinstance(href, str):
+        href = ""
     if href and not href.startswith("http"):
         href = _BASE_URL + href
     url = href
 
     listing_id = None
     try:
-        listing_id = int(card["data-idinz"])
+        listing_id = int(str(card["data-idinz"]))
     except (KeyError, ValueError, TypeError):
         pass
 

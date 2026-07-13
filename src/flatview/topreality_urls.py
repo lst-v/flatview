@@ -4,15 +4,15 @@ from urllib.parse import urlencode
 
 # form select: transaction type
 TRANSACTION_MAP: dict[str, str] = {
-    "predam": "1",     # Predám
-    "prenajmu": "3",   # Prenájom
+    "predam": "1",  # Predám
+    "prenajmu": "3",  # Prenájom
 }
 
 # type[] select: property type
 PROPERTY_TYPE_MAP: dict[str, str] = {
-    "byt": "103",       # 2 izbový byt (generic apartment)
-    "dom": "204",       # Rodinný dom
-    "pozemok": "802",   # Pozemok pre rodinné domy
+    "byt": "103",  # 2 izbový byt (generic apartment)
+    "dom": "204",  # Rodinný dom
+    "pozemok": "802",  # Pozemok pre rodinné domy
     "priestor": "401",  # Kancelárie
 }
 

@@ -6,7 +6,6 @@ from bs4 import BeautifulSoup, Tag
 
 from flatview.models import Listing
 
-
 AREA_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*m[²2]", re.IGNORECASE)
 
 
@@ -72,6 +71,8 @@ def _parse_card(card: Tag, site: str) -> Listing | None:
 
     title = nadpis.get_text(strip=True)
     href = nadpis.get("href", "")
+    if not isinstance(href, str):
+        href = ""
     if href.startswith("/"):
         # Category subdomain — extract from parent URL context
         url = f"https://{_guess_subdomain(card, site)}.{site}{href}"
@@ -138,6 +139,8 @@ def _guess_subdomain(card: Tag, site: str) -> str:
     # Look for an absolute link in the card to extract subdomain
     for a in card.select("a[href^='https://']"):
         href = a.get("href", "")
+        if not isinstance(href, str):
+            continue
         match = re.match(rf"https://(\w+)\.{re.escape(site)}", href)
         if match:
             return match.group(1)

@@ -28,7 +28,9 @@ def _make_jsonld_html(graph_items, num_items=None):
     }
     # Escape for JS string literal
     raw = json.dumps(data).replace("\\", "\\\\").replace('"', '\\"')
-    return f'<html><head><script>self.__next_f.push([1,"{raw}"])</script></head><body></body></html>'
+    return (
+        f'<html><head><script>self.__next_f.push([1,"{raw}"])</script></head><body></body></html>'
+    )
 
 
 SAMPLE_ITEM = {
@@ -102,7 +104,11 @@ def test_parse_listings_from_jsonld():
 
 
 def test_parse_listings_multiple():
-    item2 = {**SAMPLE_ITEM, "name": "3-izbový byt", "priceSpecification": {"price": 200000, "priceCurrency": "EUR"}}
+    item2 = {
+        **SAMPLE_ITEM,
+        "name": "3-izbový byt",
+        "priceSpecification": {"price": 200000, "priceCurrency": "EUR"},
+    }
     html = _make_jsonld_html([SAMPLE_ITEM, item2])
     listings = parse_nehnutelnosti_listings(html)
     assert len(listings) == 2

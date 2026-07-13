@@ -16,7 +16,8 @@ class Listing:
     date: str
     url: str
     views: int | None = None
-    id: int | None = None
+    # bazos/topreality use numeric ids; nehnutelnosti uses a URL slug string.
+    id: int | str | None = None
     source: str = "bazos"
     area: float | None = None
     description: str | None = None

@@ -3,8 +3,13 @@ from flatview.models import Listing, SearchResult
 
 def test_listing_defaults():
     l = Listing(
-        title="Test", price=100.0, currency="EUR",
-        city="X", postcode="000", date="1.1.2026", url="http://x",
+        title="Test",
+        price=100.0,
+        currency="EUR",
+        city="X",
+        postcode="000",
+        date="1.1.2026",
+        url="http://x",
     )
     assert l.views is None
     assert l.id is None
