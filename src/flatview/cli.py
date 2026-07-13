@@ -13,7 +13,7 @@ from flatview.log import setup_logging
 from flatview.models import SearchResult
 from flatview.scrape import SearchParams, scrape
 
-_COMMANDS = {"search"}
+_COMMANDS = {"search", "watch"}
 
 
 def _add_common_flags(parser: argparse.ArgumentParser) -> None:
@@ -79,6 +79,14 @@ def _add_search_flags(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_db_flag(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--db-path",
+        default=None,
+        help="Override SQLite history path (default: ~/.local/share/flatview/flatview.db)",
+    )
+
+
 def _add_output_flags(parser: argparse.ArgumentParser) -> None:
     """Flags specific to `search` — display, export, and storage behavior."""
     parser.add_argument(
@@ -115,11 +123,6 @@ def _add_output_flags(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Skip writing this run to the SQLite history store.",
     )
-    parser.add_argument(
-        "--db-path",
-        default=None,
-        help="Override SQLite history path (default: ~/.local/share/flatview/flatview.db)",
-    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -132,7 +135,27 @@ def build_parser() -> argparse.ArgumentParser:
     search = sub.add_parser("search", help="One-shot search across portals (default command)")
     _add_search_flags(search)
     _add_output_flags(search)
+    _add_db_flag(search)
     _add_common_flags(search)
+
+    watch = sub.add_parser("watch", help="Manage saved searches for tracking")
+    watch_sub = watch.add_subparsers(dest="watch_command", required=True)
+
+    w_add = watch_sub.add_parser("add", help="Save a search to re-run on every `flatview track`")
+    w_add.add_argument("name", help="Unique watch name (e.g. mi-2izb)")
+    _add_search_flags(w_add)
+    _add_db_flag(w_add)
+    _add_common_flags(w_add)
+
+    w_list = watch_sub.add_parser("list", help="List saved watches")
+    w_list.add_argument("--all", action="store_true", help="Include inactive watches")
+    _add_db_flag(w_list)
+    _add_common_flags(w_list)
+
+    w_remove = watch_sub.add_parser("remove", help="Remove a saved watch")
+    w_remove.add_argument("name", help="Watch name to remove")
+    _add_db_flag(w_remove)
+    _add_common_flags(w_remove)
 
     return parser
 
@@ -261,12 +284,82 @@ def cmd_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_watch(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from rich.table import Table
+
+    from flatview.errors import FlatviewError
+    from flatview.storage import default_db_path, open_db
+    from flatview.watches import Watch, add_watch, list_watches, remove_watch
+
+    console = Console()
+    db_path = Path(args.db_path) if args.db_path else default_db_path()
+    conn = open_db(db_path)
+    try:
+        if args.watch_command == "add":
+            watch = Watch(name=args.name, params=params_from_args(args))
+            try:
+                add_watch(conn, watch)
+            except FlatviewError as e:
+                console.print(f"[red]{e}[/red]")
+                return 2
+            console.print(f"[green]Added watch '{args.name}'.[/green]")
+
+        elif args.watch_command == "list":
+            watches = list_watches(conn, include_inactive=args.all)
+            if not watches:
+                console.print(
+                    "[yellow]No watches saved. Add one with `flatview watch add`.[/yellow]"
+                )
+                return 0
+            table = Table(title="Watches")
+            table.add_column("Name", style="bold")
+            table.add_column("Query")
+            table.add_column("Source")
+            table.add_column("Location")
+            table.add_column("Subcategory")
+            table.add_column("Price", justify="right")
+            table.add_column("Pages", justify="right")
+            table.add_column("Created", width=12)
+            for w in watches:
+                p = w.params
+                price = ""
+                if p.price_from is not None or p.price_to is not None:
+                    price = f"{p.price_from or ''}–{p.price_to or ''}"
+                name = w.name if w.active else f"[dim]{w.name} (inactive)[/dim]"
+                table.add_row(
+                    name,
+                    p.query,
+                    p.source,
+                    p.location,
+                    p.subcategory,
+                    price,
+                    "all" if p.pages in (0, None) else str(p.pages),
+                    w.created_at[:10],
+                )
+            console.print(table)
+
+        elif args.watch_command == "remove":
+            if remove_watch(conn, args.name):
+                console.print(f"[green]Removed watch '{args.name}'.[/green]")
+            else:
+                console.print(f"[red]No watch named '{args.name}'.[/red]")
+                return 2
+
+        return 0
+    finally:
+        conn.close()
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     setup_logging(verbose=getattr(args, "verbose", False))
 
     if args.command == "search":
         code = cmd_search(args)
+    elif args.command == "watch":
+        code = cmd_watch(args)
     else:  # pragma: no cover — argparse rejects unknown commands
         code = 2
 

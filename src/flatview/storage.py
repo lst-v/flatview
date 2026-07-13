@@ -40,6 +40,25 @@ CREATE TABLE IF NOT EXISTS price_history (
     PRIMARY KEY (source, listing_key, observed_at)
 );
 CREATE INDEX IF NOT EXISTS idx_listings_lastseen ON listings(last_seen);
+CREATE TABLE IF NOT EXISTS watches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    query TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'all',
+    site TEXT NOT NULL DEFAULT 'bazos.sk',
+    category TEXT NOT NULL DEFAULT 'reality',
+    subcategory TEXT NOT NULL DEFAULT '',
+    location TEXT NOT NULL DEFAULT '',
+    radius INTEGER NOT NULL DEFAULT 25,
+    strict_location INTEGER NOT NULL DEFAULT 0,
+    zip TEXT NOT NULL DEFAULT '',
+    price_from INTEGER,
+    price_to INTEGER,
+    title_filter TEXT NOT NULL DEFAULT '',
+    pages INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -52,6 +71,7 @@ def default_db_path() -> Path:
 def open_db(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(_SCHEMA)
     conn.commit()
     return conn
