@@ -13,7 +13,7 @@ from flatview.log import setup_logging
 from flatview.models import SearchResult
 from flatview.scrape import SearchParams, scrape
 
-_COMMANDS = {"search", "watch"}
+_COMMANDS = {"search", "watch", "track"}
 
 
 def _add_common_flags(parser: argparse.ArgumentParser) -> None:
@@ -156,6 +156,26 @@ def build_parser() -> argparse.ArgumentParser:
     w_remove.add_argument("name", help="Watch name to remove")
     _add_db_flag(w_remove)
     _add_common_flags(w_remove)
+
+    track = sub.add_parser("track", help="Run all watches, detect new/changed/delisted listings")
+    track.add_argument("--watch", default=None, help="Run only this watch (by name)")
+    track.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Scrape and detect events but write nothing (no DB, no digest, no email)",
+    )
+    track.add_argument(
+        "--no-email",
+        action="store_true",
+        help="Skip sending the email digest even when SMTP is configured",
+    )
+    track.add_argument(
+        "--config",
+        default=None,
+        help="Config file path (default: ~/.config/flatview/config.toml)",
+    )
+    _add_db_flag(track)
+    _add_common_flags(track)
 
     return parser
 
@@ -352,6 +372,39 @@ def cmd_watch(args: argparse.Namespace) -> int:
         conn.close()
 
 
+def cmd_track(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from flatview.track import run_track
+
+    console = Console()
+    code, all_events = run_track(
+        db_path=Path(args.db_path) if args.db_path else None,
+        watch_name=args.watch,
+        dry_run=args.dry_run,
+    )
+
+    for ev in all_events:
+        if ev.error:
+            console.print(f"[red]{ev.watch.name}: failed — {ev.error}[/red]")
+        elif ev.is_baseline:
+            console.print(
+                f"[cyan]{ev.watch.name}[/cyan]: baseline run, "
+                f"{ev.n_listings} listings recorded (new-listing alerts start next run)"
+            )
+        else:
+            console.print(
+                f"[cyan]{ev.watch.name}[/cyan]: {ev.n_listings} listings — "
+                f"[green]{len(ev.new)} new[/green], "
+                f"{len(ev.price_drops)} price drops, "
+                f"{len(ev.delisted)} delisted, "
+                f"{len(ev.bargains)} bargains"
+            )
+    if args.dry_run and all_events:
+        console.print("[dim]Dry run: nothing was written.[/dim]")
+    return code
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     setup_logging(verbose=getattr(args, "verbose", False))
@@ -360,6 +413,8 @@ def main(argv: list[str] | None = None) -> None:
         code = cmd_search(args)
     elif args.command == "watch":
         code = cmd_watch(args)
+    elif args.command == "track":
+        code = cmd_track(args)
     else:  # pragma: no cover — argparse rejects unknown commands
         code = 2
 

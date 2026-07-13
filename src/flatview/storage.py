@@ -59,6 +59,30 @@ CREATE TABLE IF NOT EXISTS watches (
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS watch_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL DEFAULT 'running',
+    n_listings INTEGER,
+    n_new INTEGER,
+    n_price_drops INTEGER,
+    n_delisted INTEGER,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_watch_runs_watch ON watch_runs(watch_id, started_at);
+CREATE TABLE IF NOT EXISTS watch_listings (
+    watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
+    source TEXT NOT NULL,
+    listing_key TEXT NOT NULL,
+    first_matched TEXT NOT NULL,
+    last_matched TEXT NOT NULL,
+    delisted_at TEXT,
+    PRIMARY KEY (watch_id, source, listing_key)
+);
+CREATE INDEX IF NOT EXISTS idx_watch_listings_lastmatched
+    ON watch_listings(watch_id, last_matched);
 """
 
 
@@ -219,3 +243,145 @@ def median_pm2_over_time(conn: sqlite3.Connection, *, days: int = 180) -> list[t
         m = compute_percentiles(by_date[d], (50,))[50]
         out.append((d, m))
     return out
+
+
+# --- Watch-run tracking (used by `flatview track`) ---
+
+
+def record_run_start(conn: sqlite3.Connection, watch_id: int, started_at: str) -> int:
+    cur = conn.execute(
+        "INSERT INTO watch_runs (watch_id, started_at) VALUES (?, ?)",
+        (watch_id, started_at),
+    )
+    conn.commit()
+    assert cur.lastrowid is not None
+    return cur.lastrowid
+
+
+def record_run_finish(
+    conn: sqlite3.Connection,
+    run_id: int,
+    *,
+    status: str,
+    finished_at: str | None = None,
+    n_listings: int = 0,
+    n_new: int = 0,
+    n_price_drops: int = 0,
+    n_delisted: int = 0,
+    error: str | None = None,
+) -> None:
+    finished_at = finished_at or datetime.now(UTC).isoformat(timespec="seconds")
+    conn.execute(
+        """UPDATE watch_runs
+           SET finished_at=?, status=?, n_listings=?, n_new=?,
+               n_price_drops=?, n_delisted=?, error=?
+           WHERE id=?""",
+        (finished_at, status, n_listings, n_new, n_price_drops, n_delisted, error, run_id),
+    )
+    conn.commit()
+
+
+def last_successful_run(conn: sqlite3.Connection, watch_id: int) -> str | None:
+    """started_at of the most recent non-error, non-running run for this watch."""
+    cur = conn.execute(
+        """SELECT started_at FROM watch_runs
+           WHERE watch_id=? AND status IN ('ok', 'empty')
+           ORDER BY started_at DESC LIMIT 1""",
+        (watch_id,),
+    )
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def get_prior_prices(
+    conn: sqlite3.Connection, listings: list[Listing]
+) -> dict[tuple[str, str], float | None]:
+    """Last stored price per (source, key) — call BEFORE upsert_listings."""
+    out: dict[tuple[str, str], float | None] = {}
+    for l in listings:
+        key = listing_key(l)
+        cur = conn.execute(
+            "SELECT last_price FROM listings WHERE source=? AND listing_key=?",
+            (l.source, key),
+        )
+        row = cur.fetchone()
+        if row is not None:
+            out[(l.source, key)] = row[0]
+    return out
+
+
+def unseen_watch_keys(
+    conn: sqlite3.Connection, watch_id: int, listings: list[Listing]
+) -> set[tuple[str, str]]:
+    """(source, key) pairs not yet in watch_listings for this watch."""
+    unseen: set[tuple[str, str]] = set()
+    for l in listings:
+        key = listing_key(l)
+        row = conn.execute(
+            "SELECT 1 FROM watch_listings WHERE watch_id=? AND source=? AND listing_key=?",
+            (watch_id, l.source, key),
+        ).fetchone()
+        if row is None:
+            unseen.add((l.source, key))
+    return unseen
+
+
+def upsert_watch_listings(
+    conn: sqlite3.Connection,
+    watch_id: int,
+    listings: list[Listing],
+    observed_at: str,
+) -> set[tuple[str, str]]:
+    """Record per-watch membership; returns newly inserted (source, key) pairs.
+
+    Reappearing listings get last_matched bumped and delisted_at cleared.
+    """
+    new_keys = unseen_watch_keys(conn, watch_id, listings)
+    cur = conn.cursor()
+    for l in listings:
+        key = listing_key(l)
+        if (l.source, key) in new_keys:
+            cur.execute(
+                """INSERT OR IGNORE INTO watch_listings
+                   (watch_id, source, listing_key, first_matched, last_matched, delisted_at)
+                   VALUES (?,?,?,?,?,NULL)""",
+                (watch_id, l.source, key, observed_at, observed_at),
+            )
+        else:
+            cur.execute(
+                """UPDATE watch_listings SET last_matched=?, delisted_at=NULL
+                   WHERE watch_id=? AND source=? AND listing_key=?""",
+                (observed_at, watch_id, l.source, key),
+            )
+    conn.commit()
+    return new_keys
+
+
+def find_delistable(conn: sqlite3.Connection, watch_id: int, *, older_than: str) -> list[tuple]:
+    """Active watch listings last matched before `older_than`.
+
+    Rows: (source, listing_key, first_matched, last_matched, title, url, last_price).
+    """
+    cur = conn.execute(
+        """SELECT wl.source, wl.listing_key, wl.first_matched, wl.last_matched,
+                  COALESCE(l.title, ''), COALESCE(l.url, ''), l.last_price
+           FROM watch_listings wl
+           LEFT JOIN listings l ON l.source=wl.source AND l.listing_key=wl.listing_key
+           WHERE wl.watch_id=? AND wl.delisted_at IS NULL AND wl.last_matched < ?""",
+        (watch_id, older_than),
+    )
+    return cur.fetchall()
+
+
+def mark_delisted(
+    conn: sqlite3.Connection,
+    watch_id: int,
+    keys: list[tuple[str, str]],
+    at: str,
+) -> None:
+    conn.executemany(
+        """UPDATE watch_listings SET delisted_at=?
+           WHERE watch_id=? AND source=? AND listing_key=?""",
+        [(at, watch_id, source, key) for source, key in keys],
+    )
+    conn.commit()

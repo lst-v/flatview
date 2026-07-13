@@ -37,3 +37,5 @@ class SearchResult:
     category: str = ""
     location: str = ""
     site: str = "bazos.sk"
+    # Set when a page fetch failed; lets callers tell "empty" from "unreachable".
+    error: str | None = None

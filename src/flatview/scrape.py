@@ -138,9 +138,11 @@ def scrape_bazos(params: SearchParams, client: BazosClient) -> SearchResult:
             if e.response is not None and e.response.status_code == 404:
                 break
             logger.error("bazos: error fetching page %d: %s", page + 1, e)
+            result.error = str(e)
             break
         except requests.RequestException as e:
             logger.error("bazos: error fetching page %d: %s", page + 1, e)
+            result.error = str(e)
             break
 
         if page == 0:
@@ -220,6 +222,7 @@ def scrape_nehnutelnosti(params: SearchParams, client: BazosClient) -> SearchRes
             html = client.get(url)
         except requests.RequestException as e:
             logger.error("nehnutelnosti: error fetching page %d: %s", page, e)
+            result.error = str(e)
             break
 
         if pages_fetched == 0:
@@ -293,6 +296,7 @@ def scrape_topreality(params: SearchParams, client: BazosClient) -> SearchResult
             html = client.get(url)
         except requests.RequestException as e:
             logger.error("topreality: error fetching page %d: %s", page, e)
+            result.error = str(e)
             break
 
         if pages_fetched == 0:
