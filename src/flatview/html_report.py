@@ -46,6 +46,8 @@ _TEMPLATE = Template(
   .segment-resale { color: #1f6feb; font-weight: 600; }
   .segment-unknown { color: #888; }
   .outlier { background: #fff8e1; }
+  .bargain { background: #e8f5e9; }
+  .overpriced { background: #ffebee; }
   .small { font-size: 13px; color: #555; }
   a { color: #1f6feb; text-decoration: none; }
   a:hover { text-decoration: underline; }
@@ -234,20 +236,35 @@ def _build_outlier_section(listings: list[Listing]) -> str:
         if fence
         else ""
     )
-    rows = "\n".join(
-        f"<tr class='outlier'><td><a href='{l.url}'>{l.title}</a></td>"
-        f"<td>{l.source}</td>"
-        f"<td>{_fmt(l.price)}</td><td>{_fmt(l.area)}</td>"
-        f"<td>{_fmt(price_per_m2(l))}</td></tr>"
-        for l in flagged
-    )
-    return (
-        f"<h2>Outliers ({len(flagged)})</h2>"
-        f"{fence_str}"
-        f"<table><thead><tr><th>Title</th><th>Source</th>"
-        f"<th>Price</th><th>Area</th><th>€/m²</th></tr></thead>"
-        f"<tbody>{rows}</tbody></table>"
-    )
+
+    def _table(items: list[Listing], css: str) -> str:
+        rows = "\n".join(
+            f"<tr class='{css}'><td><a href='{l.url}'>{l.title}</a></td>"
+            f"<td>{l.source}</td>"
+            f"<td>{_fmt(l.price)}</td><td>{_fmt(l.area)}</td>"
+            f"<td>{_fmt(price_per_m2(l))}</td></tr>"
+            for l in items
+        )
+        return (
+            f"<table><thead><tr><th>Title</th><th>Source</th>"
+            f"<th>Price</th><th>Area</th><th>€/m²</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table>"
+        )
+
+    bargains = [l for l in flagged if l.outlier_side == "bargain"]
+    overpriced = [l for l in flagged if l.outlier_side == "overpriced"]
+    other = [l for l in flagged if l.outlier_side is None]
+
+    parts = [f"<h2>Outliers ({len(flagged)})</h2>", fence_str]
+    if bargains:
+        parts.append(f"<h3>Potential bargains ({len(bargains)}) — below the low fence</h3>")
+        parts.append(_table(bargains, "bargain"))
+    if overpriced:
+        parts.append(f"<h3>Overpriced ({len(overpriced)}) — above the high fence</h3>")
+        parts.append(_table(overpriced, "overpriced"))
+    if other:
+        parts.append(_table(other, "outlier"))
+    return "\n".join(parts)
 
 
 def _build_comparables(listings: list[Listing], n: int = 10) -> str:

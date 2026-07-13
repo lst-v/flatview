@@ -80,6 +80,22 @@ def test_export_csv_summary_rows(tmp_path, make_listing):
     assert "P75" in content
 
 
+def test_export_csv_outlier_side_markers(tmp_path, make_listing):
+    path = tmp_path / "test.csv"
+    bargain = make_listing(title="Lacný", price=10_000, area=50)
+    bargain.is_outlier = True
+    bargain.outlier_side = "bargain"
+    overpriced = make_listing(title="Drahý", price=900_000, area=50)
+    overpriced.is_outlier = True
+    overpriced.outlier_side = "overpriced"
+    export_csv([bargain, overpriced], str(path))
+
+    content = path.read_text()
+    assert "*bargain" in content
+    assert "*overpriced" in content
+    assert "(1 bargain, 1 overpriced)" in content
+
+
 # --- XLSX export tests ---
 
 

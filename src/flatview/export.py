@@ -47,8 +47,15 @@ def _summary_rows(listings: list[Listing]) -> list[list]:
         rows.append([label, "", "", "", _r(price.get(key)), "", _r(pm2.get(key))])
     n_outliers = sum(1 for l in listings if l.is_outlier)
     if n_outliers:
+        n_bargain = sum(1 for l in listings if l.outlier_side == "bargain")
+        n_over = sum(1 for l in listings if l.outlier_side == "overpriced")
         rows.append([])
-        rows.append([f"Outliers flagged (EUR/m2 IQR): {n_outliers}"])
+        rows.append(
+            [
+                f"Outliers flagged (EUR/m2 IQR): {n_outliers} "
+                f"({n_bargain} bargain, {n_over} overpriced)"
+            ]
+        )
     return rows
 
 
@@ -70,7 +77,8 @@ def _listing_row(i: int, l: Listing) -> list:
     pm2 = price_per_m2(l)
     segment: str = l.segment if l.segment != "unknown" else ""
     if l.is_outlier:
-        segment = f"{segment}*" if segment else "*"
+        marker = f"*{l.outlier_side}" if l.outlier_side else "*"
+        segment = f"{segment} {marker}" if segment else marker
     return [
         i,
         l.source,
@@ -231,10 +239,13 @@ def export_pdf(listings: list[Listing], path: str | Path, title: str = "Listings
         )
     n_outliers = sum(1 for l in listings if l.is_outlier)
     if n_outliers:
+        n_bargain = sum(1 for l in listings if l.outlier_side == "bargain")
+        n_over = sum(1 for l in listings if l.outlier_side == "overpriced")
         pdf.cell(
             0,
             5,
-            f"Outliers flagged (EUR/m2 IQR): {n_outliers}",
+            f"Outliers flagged (EUR/m2 IQR): {n_outliers} "
+            f"({n_bargain} bargain, {n_over} overpriced)",
             new_x=XPos.LMARGIN,
             new_y=YPos.NEXT,
         )

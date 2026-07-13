@@ -99,7 +99,11 @@ def print_results(
             location += f" ({listing.postcode})"
 
         prefix = ""
-        if listing.is_outlier:
+        if listing.outlier_side == "bargain":
+            prefix += "[green]↓[/green] "
+        elif listing.outlier_side == "overpriced":
+            prefix += "[red]↑[/red] "
+        elif listing.is_outlier:
             prefix += "[red]*[/red] "
         if duplicate_ids and id(listing) in duplicate_ids:
             prefix += "[yellow]*[/yellow] "
@@ -207,8 +211,14 @@ def _print_price_summary(
     overall = compute_stats(listings, exclude_outliers=exclude_outliers)
     _print_block(console, "Stats", overall)
     if n_outliers:
+        n_bargain = sum(1 for l in listings if l.outlier_side == "bargain")
+        n_over = sum(1 for l in listings if l.outlier_side == "overpriced")
         suffix = " (excluded from stats)" if exclude_outliers else " (still in stats)"
-        console.print(f"[dim]Outliers: {n_outliers} flagged on EUR/m² IQR{suffix}.[/dim]")
+        console.print(
+            f"[dim]Outliers: {n_outliers} flagged on EUR/m² IQR — "
+            f"[green]{n_bargain} bargains ↓[/green], "
+            f"[red]{n_over} overpriced ↑[/red]{suffix}.[/dim]"
+        )
     per_seg = stats_by_segment(listings, exclude_outliers=exclude_outliers)
     label_map = {"new": "New build", "resale": "Resale", "unknown": "Unclassified"}
     if len(per_seg) >= 2:

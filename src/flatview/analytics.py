@@ -84,14 +84,16 @@ def compute_stats(listings: list[Listing], *, exclude_outliers: bool = False) ->
     }
 
 
-def flag_outliers_iqr(listings: list[Listing]) -> tuple[int, int]:
+def flag_outliers_iqr(listings: list[Listing], k: float = 1.5) -> tuple[int, int]:
     """Mark listings as outliers based on €/m² IQR fence.
 
-    Returns (n_flagged, n_considered). Skips when fewer than 4 listings
-    have both price and area.
+    Sets `outlier_side` to "bargain" (below the low fence) or "overpriced"
+    (above the high fence). Returns (n_flagged, n_considered). Skips when
+    fewer than 4 listings have both price and area.
     """
     for l in listings:
         l.is_outlier = False
+        l.outlier_side = None
 
     pm2_pairs = [(l, v) for l in listings if (v := price_per_m2(l)) is not None]
     n = len(pm2_pairs)
@@ -102,17 +104,22 @@ def flag_outliers_iqr(listings: list[Listing]) -> tuple[int, int]:
     pcts = compute_percentiles(values, (25, 75))
     q1, q3 = pcts[25], pcts[75]
     iqr = q3 - q1
-    low, high = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+    low, high = q1 - k * iqr, q3 + k * iqr
 
     flagged = 0
     for l, v in pm2_pairs:
-        if v < low or v > high:
+        if v < low:
             l.is_outlier = True
+            l.outlier_side = "bargain"
+            flagged += 1
+        elif v > high:
+            l.is_outlier = True
+            l.outlier_side = "overpriced"
             flagged += 1
     return flagged, n
 
 
-def iqr_fence(listings: list[Listing]) -> tuple[float, float] | None:
+def iqr_fence(listings: list[Listing], k: float = 1.5) -> tuple[float, float] | None:
     """Return the (low, high) €/m² fence used by flag_outliers_iqr, if computable."""
     vals = sorted(v for v in (price_per_m2(l) for l in listings) if v is not None)
     if len(vals) < 4:
@@ -120,7 +127,7 @@ def iqr_fence(listings: list[Listing]) -> tuple[float, float] | None:
     pcts = compute_percentiles(vals, (25, 75))
     q1, q3 = pcts[25], pcts[75]
     iqr = q3 - q1
-    return q1 - 1.5 * iqr, q3 + 1.5 * iqr
+    return q1 - k * iqr, q3 + k * iqr
 
 
 def classify_segment(listing: Listing) -> Segment:

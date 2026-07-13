@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 Segment = Literal["new", "resale", "unknown"]
+OutlierSide = Literal["bargain", "overpriced"]
 
 
 @dataclass
@@ -23,6 +24,7 @@ class Listing:
     description: str | None = None
     segment: Segment = "unknown"
     is_outlier: bool = False
+    outlier_side: OutlierSide | None = None
     first_seen: str | None = None
     previous_price: float | None = None
 
