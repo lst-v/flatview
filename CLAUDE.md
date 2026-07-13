@@ -12,12 +12,12 @@ Market-tracking CLI for bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk cl
 - `src/flatview/topreality_parser.py` — BeautifulSoup HTML parsing for topreality.sk (listing cards, area extraction)
 - `src/flatview/urls.py`, `nehnutelnosti_urls.py`, `topreality_urls.py` — per-portal URL builders
 - `src/flatview/models.py` — Dataclasses: `Listing` (segment, is_outlier, outlier_side, first_seen, previous_price), `SearchResult` (error field for fetch failures)
-- `src/flatview/analytics.py` — `compute_percentiles` (linear interpolation), `compute_stats`, `flag_outliers_iqr(k=1.5)` two-sided (bargain/overpriced), `iqr_fence`, `classify_segment`/`annotate_segments` (new/resale), `price_per_m2` (single source of truth)
+- `src/flatview/analytics.py` — `compute_percentiles` (linear interpolation), `compute_stats`, `flag_outliers_iqr(k=1.5)` two-sided (bargain/overpriced), `iqr_fence`, `classify_segment`/`annotate_segments` (new/resale), `price_per_m2` (single source of truth), `cheapest_by_pm2`. Placeholder prices (≤ 1 €, "Rezervované" token ads) are excluded from all stats and outlier detection
 - `src/flatview/storage.py` — SQLite at `~/.local/share/flatview/flatview.db` (XDG). Tables: `listings`, `price_history`, `watches`, `watch_runs`, `watch_listings`. Upserts, price history, run recording, delist queries
 - `src/flatview/watches.py` — `Watch` dataclass wrapping `SearchParams`; add/get/list/remove
 - `src/flatview/track.py` — tracking pipeline: `run_watch` (events: new/price drops/increases/delisted/bargains/overpriced), `run_track` (exit codes 0/1/2), `WatchEvents`/`PriceChange`/`DelistedInfo`
 - `src/flatview/config.py` — `~/.config/flatview/config.toml` (tomllib): `SmtpConfig`, `TrackingConfig`; `FLATVIEW_SMTP_PASSWORD` env override
-- `src/flatview/digest.py` — email-safe HTML digest (inline CSS, no JS) + text fallback; `write_digest` → timestamped + `latest.html` in `~/.local/share/flatview/digests/`
+- `src/flatview/digest.py` — email-safe HTML digest (inline CSS, no JS) + text fallback; per-watch sections incl. "Lowest €/m² right now" (top 5 with Δ vs median — low-end visibility even when nothing crosses the IQR fence); `write_digest` → timestamped + `latest.html` in `~/.local/share/flatview/digests/`
 - `src/flatview/emailer.py` — SMTP send via stdlib `EmailMessage`; raises `EmailError`
 - `src/flatview/display.py` — console tables (rich), grouped multi-source display, duplicate highlighting, ↓/↑ outlier markers
 - `src/flatview/export.py` — CSV, XLSX (openpyxl), PDF (fpdf2) with summary stats

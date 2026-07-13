@@ -67,6 +67,35 @@ def _listing_table(listings: list[Listing]) -> str:
     )
 
 
+def _cheapest_table(listings: list[Listing], stats: dict) -> str:
+    """Low-end snapshot: cheapest listings by €/m² with distance from the median."""
+    median = (stats.get("pm2") or {}).get("p50")
+    head = "".join(
+        f"<th style='{_TH}'>{h}</th>" for h in ("Title", "Price", "m²", "€/m²", "vs median", "City")
+    )
+    rows = []
+    for l in listings:
+        pm2 = price_per_m2(l)
+        title = f"<a href='{l.url}'>{l.title}</a>" if l.url else l.title
+        vs = ""
+        if pm2 is not None and median:
+            pct = (pm2 / median - 1) * 100
+            color = "#0a7f33" if pct < 0 else "#666"
+            vs = f"<span style='color:{color}'>{pct:+.0f}%</span>"
+        rows.append(
+            f"<tr><td style='{_TD}'>{title}</td>"
+            f"<td style='{_TD}'>{_fmt(l.price)}</td>"
+            f"<td style='{_TD}'>{_fmt(l.area)}</td>"
+            f"<td style='{_TD}'>{_fmt(pm2)}</td>"
+            f"<td style='{_TD}'>{vs}</td>"
+            f"<td style='{_TD}'>{l.city}</td></tr>"
+        )
+    return (
+        f"<table style='{_TABLE}'><thead><tr>{head}</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
+    )
+
+
 def _stats_block(stats: dict) -> str:
     price = stats.get("price") or {}
     pm2 = stats.get("pm2") or {}
@@ -162,6 +191,10 @@ def _watch_section(ev: WatchEvents) -> str:
         if not ev.bargains:
             parts.append(fence_note)
         parts.append(_listing_table(ev.overpriced))
+
+    if ev.cheapest:
+        parts.append(f"<p><strong>📊 Lowest €/m² right now ({len(ev.cheapest)})</strong></p>")
+        parts.append(_cheapest_table(ev.cheapest, ev.stats))
 
     parts.append(_stats_block(ev.stats))
     return "\n".join(parts)
