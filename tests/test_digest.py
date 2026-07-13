@@ -90,6 +90,18 @@ def test_render_digest_sections(events):
     assert "<script" not in html.lower()  # email-safe
 
 
+def test_render_digest_cheapest_section(make_listing):
+    cheap = make_listing(id=5, title="Najlacnejší", price=80_000, area=50)  # 1600 /m²
+    ev = WatchEvents(watch=Watch(name="w"), n_listings=8)
+    ev.cheapest = [cheap]
+    ev.stats = {"currency": "EUR", "pm2": {"n": 8, "p50": 2000}}
+    html = render_digest([ev], generated_at=GENERATED)
+
+    assert "Lowest €/m² right now (1)" in html
+    assert "Najlacnejší" in html
+    assert "-20%" in html  # 1600 vs median 2000
+
+
 def test_render_digest_error_and_baseline(make_listing):
     failed = WatchEvents(watch=Watch(name="down"), error="connection refused")
     baseline = WatchEvents(watch=Watch(name="fresh"), is_baseline=True, n_listings=4)

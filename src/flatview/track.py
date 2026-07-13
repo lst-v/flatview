@@ -13,7 +13,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from flatview.analytics import annotate_segments, compute_stats, flag_outliers_iqr, iqr_fence
+from flatview.analytics import (
+    annotate_segments,
+    cheapest_by_pm2,
+    compute_stats,
+    flag_outliers_iqr,
+    iqr_fence,
+)
 from flatview.client import BazosClient
 from flatview.models import Listing
 from flatview.scrape import scrape
@@ -75,6 +81,7 @@ class WatchEvents:
     delisted: list[DelistedInfo] = field(default_factory=list)
     bargains: list[Listing] = field(default_factory=list)
     overpriced: list[Listing] = field(default_factory=list)
+    cheapest: list[Listing] = field(default_factory=list)  # lowest €/m², market low end
     fence: tuple[float, float] | None = None  # (low, high) €/m² IQR fence
     stats: dict = field(default_factory=dict)
     n_listings: int = 0
@@ -176,6 +183,7 @@ def run_watch(
     flag_outliers_iqr(listings)
     events.bargains = [l for l in listings if l.outlier_side == "bargain"]
     events.overpriced = [l for l in listings if l.outlier_side == "overpriced"]
+    events.cheapest = cheapest_by_pm2(listings, n=5)
     events.fence = iqr_fence(listings)
     events.stats = compute_stats(listings)
 

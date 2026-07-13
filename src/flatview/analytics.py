@@ -26,10 +26,31 @@ _RESALE_PATTERNS = [
 _RESALE_OVERRIDE = re.compile(r"po\s+rekonštrukcii", re.IGNORECASE)
 
 
+# Sellers use token prices ("1 €") as reservation/negotiation placeholders;
+# treating them as real prices poisons stats and bargain detection.
+PLACEHOLDER_PRICE_MAX = 1.0
+
+
+def has_real_price(listing: Listing) -> bool:
+    return listing.price is not None and listing.price > PLACEHOLDER_PRICE_MAX
+
+
 def price_per_m2(listing: Listing) -> float | None:
-    if listing.price and listing.area and listing.area > 0:
+    if (
+        listing.price is not None
+        and listing.price > PLACEHOLDER_PRICE_MAX
+        and listing.area
+        and listing.area > 0
+    ):
         return listing.price / listing.area
     return None
+
+
+def cheapest_by_pm2(listings: list[Listing], n: int = 5) -> list[Listing]:
+    """The n listings with the lowest valid €/m², ascending."""
+    priced = [(pm2, l) for l in listings if (pm2 := price_per_m2(l)) is not None]
+    priced.sort(key=lambda pair: pair[0])
+    return [l for _, l in priced[:n]]
 
 
 def compute_percentiles(
@@ -73,9 +94,9 @@ def _basic_stats(values: list[float]) -> dict:
 def compute_stats(listings: list[Listing], *, exclude_outliers: bool = False) -> dict:
     """Return overall stats for price and €/m²."""
     pool = [l for l in listings if not (exclude_outliers and l.is_outlier)]
-    prices = [l.price for l in pool if l.price is not None]
+    prices = [l.price for l in pool if l.price is not None and l.price > PLACEHOLDER_PRICE_MAX]
     pm2s = [v for v in (price_per_m2(l) for l in pool) if v is not None]
-    currency = next((l.currency for l in pool if l.price is not None), "EUR")
+    currency = next((l.currency for l in pool if has_real_price(l)), "EUR")
     return {
         "currency": currency,
         "n_total": len(pool),

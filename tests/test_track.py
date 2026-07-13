@@ -204,6 +204,19 @@ def test_dry_run_writes_nothing(conn, watch, make_listing, monkeypatch):
     assert conn.execute("SELECT COUNT(*) FROM watch_listings").fetchone()[0] == 1
 
 
+def test_cheapest_populated(conn, watch, make_listing, monkeypatch):
+    listings = [
+        make_listing(id=1, price=100_000, area=50, title="expensive"),
+        make_listing(id=2, price=80_000, area=50, title="cheap"),
+        make_listing(id=3, price=90_000, area=50, title="middle"),
+        make_listing(id=4, price=95_000, area=50, title="upper"),
+    ]
+    _patch_scrape(monkeypatch, _result(listings))
+    ev = run_watch(conn, None, watch, observed_at="2026-07-01")
+
+    assert [l.title for l in ev.cheapest] == ["cheap", "middle", "upper", "expensive"]
+
+
 # --- run_track ---
 
 
