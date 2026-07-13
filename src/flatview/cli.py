@@ -2,33 +2,31 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 from datetime import date
 
-from requests import HTTPError
 from rich.console import Console
 
 from flatview.client import BazosClient
 from flatview.display import print_multi_results, print_results
+from flatview.log import setup_logging
 from flatview.models import SearchResult
-from flatview.nehnutelnosti_parser import (
-    parse_nehnutelnosti_listings,
-    parse_nehnutelnosti_total_count,
-)
-from flatview.nehnutelnosti_urls import build_nehnutelnosti_url
-from flatview.parser import parse_detail, parse_listings, parse_total_count
-from flatview.topreality_parser import (
-    parse_topreality_listings,
-    parse_topreality_total_count,
-)
-from flatview.topreality_urls import build_topreality_url, resolve_location
-from flatview.urls import build_search_url
+from flatview.scrape import SearchParams, scrape
+
+_COMMANDS = {"search"}
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="flatview",
-        description="Search bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk classified ads.",
+def _add_common_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show debug output (per-request logs, detail-page progress)",
     )
+
+
+def _add_search_flags(parser: argparse.ArgumentParser) -> None:
+    """Flags shared by `search` and `watch add` — they define what to scrape."""
     parser.add_argument("query", nargs="?", default="", help="Search query (e.g. '2 izbový byt')")
     parser.add_argument(
         "--category",
@@ -79,6 +77,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Number of pages to scrape (default: 1, use 0 for all)",
     )
+
+
+def _add_output_flags(parser: argparse.ArgumentParser) -> None:
+    """Flags specific to `search` — display, export, and storage behavior."""
     parser.add_argument(
         "--export",
         default="",
@@ -118,269 +120,60 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Override SQLite history path (default: ~/.local/share/flatview/flatview.db)",
     )
-    return parser.parse_args(argv)
 
 
-def _scrape_bazos(
-    args: argparse.Namespace,
-    client: BazosClient,
-    console: Console,
-    filter_re: re.Pattern | None,
-    max_pages: int,
-) -> SearchResult:
-    result = SearchResult(
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="flatview",
+        description="Search bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk classified ads.",
+    )
+    sub = parser.add_subparsers(dest="command")
+
+    search = sub.add_parser("search", help="One-shot search across portals (default command)")
+    _add_search_flags(search)
+    _add_output_flags(search)
+    _add_common_flags(search)
+
+    return parser
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    if argv is None:
+        argv = sys.argv[1:]
+    argv = list(argv)
+    # Legacy shim: bare `flatview "query" --flags` behaves as `flatview search …`.
+    if not argv or (argv[0] not in _COMMANDS and argv[0] not in ("-h", "--help")):
+        argv = ["search", *argv]
+    return build_parser().parse_args(argv)
+
+
+def params_from_args(args: argparse.Namespace) -> SearchParams:
+    return SearchParams(
         query=args.query,
-        category=args.category,
-        location=args.location,
+        source=args.source,
         site=args.site,
-    )
-
-    page = 0
-    while max_pages == 0 or page < max_pages:
-        url = build_search_url(
-            category=args.category,
-            site=args.site,
-            subcategory=args.subcategory,
-            query=args.query,
-            location=args.location,
-            radius=args.radius,
-            price_from=args.price_from,
-            price_to=args.price_to,
-            page=page,
-        )
-
-        console.print(f"[dim]Fetching bazos page {page + 1}… {url}[/dim]")
-
-        try:
-            html = client.get(url)
-        except HTTPError as e:
-            if e.response is not None and e.response.status_code == 404:
-                break
-            console.print(f"[red]Error fetching page {page + 1}: {e}[/red]")
-            break
-        except Exception as e:
-            console.print(f"[red]Error fetching page {page + 1}: {e}[/red]")
-            break
-
-        if page == 0:
-            result.total_count = parse_total_count(html)
-
-        listings = parse_listings(html, site=args.site)
-        if not listings:
-            break
-
-        if args.strict_location and args.location:
-            loc = args.location.lower()
-            listings = [l for l in listings if l.city.lower() == loc]
-
-        if args.zip:
-            zip_norm = args.zip.replace(" ", "")
-            listings = [l for l in listings if l.postcode.replace(" ", "") == zip_norm]
-
-        if filter_re:
-            listings = [l for l in listings if filter_re.search(l.title)]
-
-        result.listings.extend(listings)
-        page += 1
-
-    # Fetch detail pages for m² data
-    total = len(result.listings)
-    if total:
-        console.print(f"[dim]Fetching bazos detail pages for m² data ({total} listings)…[/dim]")
-    for i, listing in enumerate(result.listings, 1):
-        if not listing.url:
-            continue
-        # Fix subdomain: detail URLs default to www.bazos.xx but need category subdomain
-        listing.url = listing.url.replace(f"://www.{args.site}", f"://{args.category}.{args.site}")
-        detail_url = listing.url
-        try:
-            console.print(f"[dim]  Detail {i}/{total}…[/dim]")
-            detail_html = client.get(detail_url)
-            area, description = parse_detail(detail_html)
-            if area:
-                listing.area = area
-            if description:
-                listing.description = description
-        except Exception:
-            pass
-
-    return result
-
-
-def _scrape_nehnutelnosti(
-    args: argparse.Namespace,
-    client: BazosClient,
-    console: Console,
-    filter_re: re.Pattern | None,
-    max_pages: int,
-) -> SearchResult:
-    if args.category != "reality":
-        console.print(
-            "[yellow]Warning: nehnutelnosti.sk only covers real estate. "
-            f"--category '{args.category}' ignored.[/yellow]"
-        )
-    if args.zip:
-        console.print(
-            "[yellow]Warning: --zip filter not supported for nehnutelnosti.sk "
-            "(no postcode data).[/yellow]"
-        )
-
-    result = SearchResult(
-        query=args.query,
-        category="reality",
+        category=args.category,
+        subcategory=args.subcategory,
         location=args.location,
-        site="nehnutelnosti.sk",
+        radius=args.radius,
+        strict_location=args.strict_location,
+        zip_code=args.zip,
+        price_from=args.price_from,
+        price_to=args.price_to,
+        title_filter=args.filter,
+        pages=args.pages,
     )
 
-    page = 1
-    pages_fetched = 0
-    while max_pages == 0 or pages_fetched < max_pages:
-        url = build_nehnutelnosti_url(
-            query=args.query,
-            subcategory=args.subcategory,
-            location=args.location,
-            price_from=args.price_from,
-            price_to=args.price_to,
-            page=page,
-        )
 
-        console.print(f"[dim]Fetching nehnutelnosti page {page}… {url}[/dim]")
-
-        try:
-            html = client.get(url)
-        except Exception as e:
-            console.print(f"[red]Error fetching nehnutelnosti page {page}: {e}[/red]")
-            break
-
-        if pages_fetched == 0:
-            result.total_count = parse_nehnutelnosti_total_count(html)
-
-        listings = parse_nehnutelnosti_listings(html)
-        if not listings:
-            break
-
-        if args.location:
-            for listing in listings:
-                if not listing.city:
-                    listing.city = args.location
-
-        if filter_re:
-            listings = [l for l in listings if filter_re.search(l.title)]
-
-        result.listings.extend(listings)
-        pages_fetched += 1
-        page += 1
-
-    return result
-
-
-def _scrape_topreality(
-    args: argparse.Namespace,
-    client: BazosClient,
-    console: Console,
-    filter_re: re.Pattern | None,
-    max_pages: int,
-) -> SearchResult:
-    if args.category != "reality":
-        console.print(
-            "[yellow]Warning: topreality.sk only covers real estate. "
-            f"--category '{args.category}' ignored.[/yellow]"
-        )
-    if args.zip:
-        console.print(
-            "[yellow]Warning: --zip filter not supported for topreality.sk "
-            "(no postcode data).[/yellow]"
-        )
-
-    result = SearchResult(
-        query=args.query,
-        category="reality",
-        location=args.location,
-        site="topreality.sk",
-    )
-
-    # Resolve location name to topreality district ID
-    location_id = ""
-    if args.location:
-        console.print(f"[dim]Resolving topreality location for '{args.location}'…[/dim]")
-        location_id = resolve_location(args.location)
-        if location_id:
-            console.print(f"[dim]Resolved to: {location_id}[/dim]")
-        else:
-            console.print(
-                f"[yellow]Warning: could not resolve location '{args.location}' "
-                "on topreality.sk[/yellow]"
-            )
-
-    page = 1
-    pages_fetched = 0
-    while max_pages == 0 or pages_fetched < max_pages:
-        url = build_topreality_url(
-            query=args.query,
-            subcategory=args.subcategory,
-            location_id=location_id,
-            price_from=args.price_from,
-            price_to=args.price_to,
-            page=page,
-        )
-
-        console.print(f"[dim]Fetching topreality page {page}… {url}[/dim]")
-
-        try:
-            html = client.get(url)
-        except Exception as e:
-            console.print(f"[red]Error fetching topreality page {page}: {e}[/red]")
-            break
-
-        if pages_fetched == 0:
-            result.total_count = parse_topreality_total_count(html)
-
-        listings = parse_topreality_listings(html)
-        if not listings:
-            break
-
-        if args.location:
-            for listing in listings:
-                if not listing.city:
-                    listing.city = args.location
-
-        if args.strict_location and args.location:
-            loc = args.location.lower()
-            listings = [l for l in listings if l.city.lower() == loc]
-
-        if filter_re:
-            listings = [l for l in listings if filter_re.search(l.title)]
-
-        result.listings.extend(listings)
-        pages_fetched += 1
-        page += 1
-
-    return result
-
-
-def main(argv: list[str] | None = None) -> None:
-    args = parse_args(argv)
+def cmd_search(args: argparse.Namespace) -> int:
     console = Console()
-    client = BazosClient()
 
     if args.report == "cma" and args.cma_area is None:
         console.print("[red]--report cma requires --cma-area FLOAT[/red]")
-        raise SystemExit(2)
+        return 2
 
-    max_pages = args.pages if args.pages is not None else (0 if not args.query else 1)
-    filter_re = re.compile(args.filter, re.IGNORECASE) if args.filter else None
-
-    results: list[SearchResult] = []
-
-    if args.source in ("bazos", "all"):
-        results.append(_scrape_bazos(args, client, console, filter_re, max_pages))
-
-    if args.source in ("nehnutelnosti", "all"):
-        results.append(_scrape_nehnutelnosti(args, client, console, filter_re, max_pages))
-
-    if args.source in ("topreality", "all"):
-        results.append(_scrape_topreality(args, client, console, filter_re, max_pages))
-
+    client = BazosClient()
+    results: list[SearchResult] = scrape(params_from_args(args), client)
     all_listings = [l for r in results for l in r.listings]
 
     # Post-scrape pipeline: segment, persist, flag outliers.
@@ -465,6 +258,20 @@ def main(argv: list[str] | None = None) -> None:
 
     if conn is not None:
         conn.close()
+    return 0
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    setup_logging(verbose=getattr(args, "verbose", False))
+
+    if args.command == "search":
+        code = cmd_search(args)
+    else:  # pragma: no cover — argparse rejects unknown commands
+        code = 2
+
+    if code:
+        raise SystemExit(code)
 
 
 if __name__ == "__main__":

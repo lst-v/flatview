@@ -1,6 +1,6 @@
 import pytest
 
-from flatview.cli import parse_args
+from flatview.cli import params_from_args, parse_args
 
 
 def test_default_args():
@@ -105,3 +105,52 @@ def test_source_topreality():
 def test_pages_zero():
     args = parse_args(["--pages", "0"])
     assert args.pages == 0
+
+
+# --- Subcommands and legacy shim ---
+
+
+def test_legacy_shim_maps_to_search():
+    args = parse_args(["2 izbový byt", "--source", "all"])
+    assert args.command == "search"
+    assert args.query == "2 izbový byt"
+    assert args.source == "all"
+
+
+def test_empty_args_default_to_search():
+    assert parse_args([]).command == "search"
+
+
+def test_explicit_search_command():
+    args = parse_args(["search", "query", "--location", "Michalovce"])
+    assert args.command == "search"
+    assert args.query == "query"
+    assert args.location == "Michalovce"
+
+
+def test_params_from_args_mapping():
+    args = parse_args(
+        [
+            "search",
+            "byt",
+            "--source",
+            "all",
+            "--zip",
+            "07101",
+            "--filter",
+            "rekonštr",
+            "--strict-location",
+            "--location",
+            "Michalovce",
+            "--pages",
+            "3",
+        ]
+    )
+    params = params_from_args(args)
+    assert params.query == "byt"
+    assert params.source == "all"
+    assert params.zip_code == "07101"
+    assert params.title_filter == "rekonštr"
+    assert params.strict_location is True
+    assert params.location == "Michalovce"
+    assert params.pages == 3
