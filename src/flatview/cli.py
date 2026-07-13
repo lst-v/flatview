@@ -373,15 +373,32 @@ def cmd_watch(args: argparse.Namespace) -> int:
 
 
 def cmd_track(args: argparse.Namespace) -> int:
+    from datetime import datetime
     from pathlib import Path
 
+    from flatview.config import default_digest_dir, load_config
+    from flatview.digest import (
+        digest_subject,
+        has_events,
+        render_digest,
+        render_digest_text,
+        write_digest,
+    )
+    from flatview.errors import ConfigError, EmailError
     from flatview.track import run_track
 
     console = Console()
+    try:
+        config = load_config(Path(args.config) if args.config else None)
+    except ConfigError as e:
+        console.print(f"[red]{e}[/red]")
+        return 2
+
     code, all_events = run_track(
         db_path=Path(args.db_path) if args.db_path else None,
         watch_name=args.watch,
         dry_run=args.dry_run,
+        delist_after_days=config.tracking.delist_after_days,
     )
 
     for ev in all_events:
@@ -400,8 +417,39 @@ def cmd_track(args: argparse.Namespace) -> int:
                 f"{len(ev.delisted)} delisted, "
                 f"{len(ev.bargains)} bargains"
             )
-    if args.dry_run and all_events:
-        console.print("[dim]Dry run: nothing was written.[/dim]")
+    if args.dry_run:
+        if all_events:
+            console.print("[dim]Dry run: nothing was written.[/dim]")
+        return code
+
+    if all_events:
+        now = datetime.now()
+        html = render_digest(all_events, generated_at=now)
+        digest_dir = config.tracking.digest_dir or default_digest_dir()
+        digest_path = write_digest(html, digest_dir, now)
+        console.print(f"[green]Digest written: {digest_path}[/green]")
+
+        should_email = (
+            config.smtp is not None
+            and not args.no_email
+            and (has_events(all_events) or not config.tracking.email_only_on_events)
+        )
+        if should_email:
+            from flatview.emailer import send_html_email
+
+            assert config.smtp is not None
+            try:
+                send_html_email(
+                    smtp=config.smtp,
+                    subject=digest_subject(all_events),
+                    html=html,
+                    text_fallback=render_digest_text(all_events),
+                )
+                console.print("[green]Digest email sent.[/green]")
+            except EmailError as e:
+                console.print(f"[red]{e}[/red]")
+                console.print(f"[yellow]Digest file remains at {digest_path}.[/yellow]")
+                code = code or 1
     return code
 
 
