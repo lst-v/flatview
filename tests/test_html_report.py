@@ -66,3 +66,24 @@ def test_render_report_cma_mode(tmp_path, make_listing):
     text = out.read_text(encoding="utf-8")
     assert "CMA" in text
     assert "Recommended range" in text
+    assert "±25%" in text  # default band
+
+
+def test_render_report_cma_custom_band(tmp_path, make_listing):
+    listings = [
+        make_listing(id=i, title=f"3i byt {i}", price=80_000 + i * 4_000, area=50 + i)
+        for i in range(8)
+    ]
+    annotate_segments(listings)
+    out = tmp_path / "report_cma.html"
+    render_report(
+        listings,
+        query="3i byt",
+        location="Michalovce",
+        sources=["bazos.sk"],
+        out_path=out,
+        mode="cma",
+        cma_target_area=55,
+        cma_area_band=0.10,
+    )
+    assert "±10%" in out.read_text(encoding="utf-8")

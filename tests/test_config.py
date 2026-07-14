@@ -52,6 +52,30 @@ def test_full_config_parsed(tmp_path, monkeypatch):
     assert cfg.tracking.email_only_on_events is False
 
 
+def test_analytics_defaults(tmp_path):
+    cfg = load_config(tmp_path / "nope.toml")
+    assert cfg.analytics.iqr_k == 1.5
+    assert cfg.analytics.cma_area_band == 0.25
+
+
+def test_analytics_parsed(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text("[analytics]\niqr_k = 2.0\ncma_area_band = 0.10\n")
+    cfg = load_config(path)
+    assert cfg.analytics.iqr_k == 2.0
+    assert cfg.analytics.cma_area_band == 0.10
+
+
+@pytest.mark.parametrize(
+    "body", ["iqr_k = 0", "iqr_k = -1.5", "cma_area_band = 0", "cma_area_band = 1.5"]
+)
+def test_analytics_validation(tmp_path, body):
+    path = tmp_path / "config.toml"
+    path.write_text(f"[analytics]\n{body}\n")
+    with pytest.raises(ConfigError):
+        load_config(path)
+
+
 def test_ntfy_defaults_and_full(tmp_path, monkeypatch):
     monkeypatch.delenv("FLATVIEW_NTFY_TOKEN", raising=False)
     path = tmp_path / "config.toml"

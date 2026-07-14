@@ -225,11 +225,11 @@ def _build_history_chart(conn: sqlite3.Connection | None) -> str | None:
     return fig.to_html(full_html=False, include_plotlyjs=False)
 
 
-def _build_outlier_section(listings: list[Listing]) -> str:
+def _build_outlier_section(listings: list[Listing], *, iqr_k: float = 1.5) -> str:
     flagged = [l for l in listings if l.is_outlier]
     if not flagged:
         return ""
-    fence = iqr_fence(listings)
+    fence = iqr_fence(listings, k=iqr_k)
     fence_str = (
         f"<p class='small'>IQR fence on €/m²: "
         f"<strong>{fence[0]:,.0f}</strong> – <strong>{fence[1]:,.0f}</strong>.</p>"
@@ -295,6 +295,8 @@ def _build_cma_view(
     listings: list[Listing],
     target_area: float,
     conn: sqlite3.Connection | None,
+    *,
+    area_band: float = 0.25,
 ) -> str:
     candidates = [
         l for l in listings if l.area is not None and l.price is not None and not l.is_outlier
@@ -305,8 +307,8 @@ def _build_cma_view(
     candidates.sort(key=lambda l: abs((l.area or 0) - target_area))
     top = candidates[:10]
 
-    # Tight band: pull comps within ±25% of target area for the recommendation.
-    band = [l for l in top if l.area and abs(l.area - target_area) <= target_area * 0.25]
+    # Tight band: pull comps close to the target area for the recommendation.
+    band = [l for l in top if l.area and abs(l.area - target_area) <= target_area * area_band]
     band = band or top
 
     pm2_vals = sorted(pm2 for l in band if (pm2 := price_per_m2(l)) is not None)
@@ -341,7 +343,7 @@ def _build_cma_view(
 
     return (
         f"<h2>CMA — target {target_area:.0f} m²</h2>"
-        f"<p>Comparable count (within ±25% area): <strong>{len(band)}</strong></p>"
+        f"<p>Comparable count (within ±{area_band:.0%} area): <strong>{len(band)}</strong></p>"
         f"<ul>"
         f"<li>P25 €/m²: <strong>{pcts[25]:,.0f}</strong> "
         f"→ asking ~{rec_low:,.0f} {currency}</li>"
@@ -369,8 +371,10 @@ def render_report(
     out_path: Path,
     mode: Literal["full", "cma"] = "full",
     cma_target_area: float | None = None,
+    cma_area_band: float = 0.25,
     history_conn: sqlite3.Connection | None = None,
     exclude_outliers: bool = False,
+    iqr_k: float = 1.5,
 ) -> None:
     df = _listings_to_df(listings)
     overall = compute_stats(listings, exclude_outliers=exclude_outliers)
@@ -381,12 +385,12 @@ def render_report(
         charts.append(hist_chart)
 
     stats_html = _build_stats_section(listings, exclude_outliers)
-    outlier_html = _build_outlier_section(listings)
+    outlier_html = _build_outlier_section(listings, iqr_k=iqr_k)
     comparables_html = _build_comparables(listings)
 
     cma_html = ""
     if mode == "cma" and cma_target_area is not None:
-        cma_html = _build_cma_view(listings, cma_target_area, history_conn)
+        cma_html = _build_cma_view(listings, cma_target_area, history_conn, area_band=cma_area_band)
 
     html = _TEMPLATE.render(
         title=query or "Listings",

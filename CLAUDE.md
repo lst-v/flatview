@@ -18,7 +18,7 @@ Market-tracking CLI for bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk cl
 - `src/flatview/watches.py` — `Watch` dataclass wrapping `SearchParams`; add/get/list/remove
 - `src/flatview/track.py` — tracking pipeline: `run_watch` (events: new/price drops/increases/delisted/bargains/overpriced + `trend`), `run_track` (exit codes 0/1/2), `WatchEvents`/`PriceChange`/`DelistedInfo`
 - `src/flatview/trends.py` — market trends from stored history: `snapshot` (as-of-date median €/m² + active count; price = latest observation ≤ date, active = membership window covers date, cross-posts collapsed by rounded price+area key), `compute_trend` → `TrendSummary` (deltas vs 7 d ago, activity from `watch_runs`, `days_on_market_stats`, `price_cut_stats`, `rolling_median_pm2` 30-d series). Computed in `run_watch` unless dry-run; failures logged, never abort the run
-- `src/flatview/config.py` — `~/.config/flatview/config.toml` (tomllib): `SmtpConfig`, `NtfyConfig`, `TrackingConfig`; `FLATVIEW_SMTP_PASSWORD` / `FLATVIEW_NTFY_TOKEN` env overrides
+- `src/flatview/config.py` — `~/.config/flatview/config.toml` (tomllib): `SmtpConfig`, `NtfyConfig`, `TrackingConfig`, `AnalyticsConfig` (`iqr_k`, `cma_area_band` — validated, used by both search and track); `FLATVIEW_SMTP_PASSWORD` / `FLATVIEW_NTFY_TOKEN` env overrides
 - `src/flatview/digest.py` — email-safe HTML digest (inline CSS, no JS) + text fallback; per-watch sections incl. "Lowest €/m² right now" (top 5 with Δ vs median — low-end visibility even when nothing crosses the IQR fence) and "Market trend" (deltas vs 7 d ago, DOM, price cuts, 30-d series; hidden on baseline runs); `write_digest` → timestamped + `latest.html` in `~/.local/share/flatview/digests/`
 - `src/flatview/emailer.py` — SMTP send via stdlib `EmailMessage`; raises `EmailError`
 - `src/flatview/notify.py` — ntfy push: `send_ntfy` (JSON publish to server root — headers are latin-1 only, JSON keeps diacritics), `build_push_message` (phone-sized, capped lines); raises `NotifyError`
@@ -104,7 +104,7 @@ Search flags (shared by `search` and `watch add`):
 - **Multi-source**: `--source all` scrapes all portals and shows grouped results with combined summary
 - **m² extraction**: bazos detail pages fetched for floor area; nehnutelnosti provides it in JSON-LD; topreality provides it in HTML
 - **Duplicate detection**: entity resolution in `dedup.py` (area+price+city with title guard, title-only fallback ≥ 0.7) marks cross-source duplicates with `*`; combined-summary stats, track analytics (outliers/cheapest/stats), and NEW alerts all count each flat once — a cross-post to a second portal does not alert
-- **Two-sided outliers**: 1.5×IQR fence on €/m²; below = bargain (green ↓), above = overpriced (red ↑); surfaced in console, exports, HTML report, digest
+- **Two-sided outliers**: k×IQR fence on €/m² (k = `analytics.iqr_k`, default 1.5); below = bargain (green ↓), above = overpriced (red ↑); surfaced in console, exports, HTML report, digest. CMA comparable band likewise configurable (`analytics.cma_area_band`)
 - **Market trends**: per-watch deltas vs 7 days ago (median €/m², active listings), 30-day median series, days-on-market, price-cut frequency — reconstructed from `price_history`/`watch_listings`/`watch_runs`, in the digest and track console
 - **Push notifications**: ntfy channel (`[ntfy]` in config.toml) — event-driven push to phone alongside the email digest
 - **Postcode filter**: `--zip` filters bazos listings by exact postcode (not available for nehnutelnosti/topreality)

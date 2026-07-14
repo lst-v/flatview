@@ -97,7 +97,13 @@ to = ["me@gmail.com"]
 [tracking]
 delist_after_days = 2          # grace window before a missing listing counts as delisted
 email_only_on_events = true    # false = email every run, even with no changes
+
+[analytics]
+iqr_k = 1.5                    # outlier fence multiplier; lower flags more bargains/overpriced
+cma_area_band = 0.25           # CMA comparables within ±25% of the target area
 ```
+
+The `[analytics]` section applies to `search` (console, exports, HTML/CMA report) and `track` (digest outliers) alike.
 
 For Gmail use an [app password](https://myaccount.google.com/apppasswords). Without an `[smtp]` section, `track` is local-only (digest file, no email) — never an error.
 

@@ -220,6 +220,17 @@ def cmd_search(args: argparse.Namespace) -> int:
         console.print("[red]--report cma requires --cma-area FLOAT[/red]")
         return 2
 
+    # Analytics knobs ([analytics] iqr_k / cma_area_band) come from config.toml;
+    # search must not die on e.g. an SMTP typo, so fall back to defaults loudly.
+    from flatview.config import AnalyticsConfig, load_config
+    from flatview.errors import ConfigError
+
+    try:
+        analytics_cfg = load_config().analytics
+    except ConfigError as e:
+        console.print(f"[yellow]{e} — using default analytics settings[/yellow]")
+        analytics_cfg = AnalyticsConfig()
+
     client = BazosClient()
     results: list[SearchResult] = scrape(params_from_args(args), client)
     all_listings = [l for r in results for l in r.listings]
@@ -250,7 +261,7 @@ def cmd_search(args: argparse.Namespace) -> int:
             conn = None
 
     if all_listings:
-        n_flagged, _ = flag_outliers_iqr(all_listings)
+        n_flagged, _ = flag_outliers_iqr(all_listings, k=analytics_cfg.iqr_k)
         if n_flagged:
             console.print(f"[yellow]Flagged {n_flagged} outliers on EUR/m² (IQR fence).[/yellow]")
 
@@ -297,8 +308,10 @@ def cmd_search(args: argparse.Namespace) -> int:
                     out_path=html_path,
                     mode=args.report,
                     cma_target_area=args.cma_area,
+                    cma_area_band=analytics_cfg.cma_area_band,
                     history_conn=conn,
                     exclude_outliers=args.remove_outliers,
+                    iqr_k=analytics_cfg.iqr_k,
                 )
                 console.print(f"[green]Exported HTML: {html_path}[/green]")
             else:
@@ -404,6 +417,7 @@ def cmd_track(args: argparse.Namespace) -> int:
         watch_name=args.watch,
         dry_run=args.dry_run,
         delist_after_days=config.tracking.delist_after_days,
+        iqr_k=config.analytics.iqr_k,
     )
 
     for ev in all_events:

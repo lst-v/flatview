@@ -15,6 +15,10 @@ means defaults; a malformed file raises ConfigError. Example:
     delist_after_days = 2
     email_only_on_events = true
 
+    [analytics]
+    iqr_k = 1.5            # outlier fence multiplier; lower = more sensitive
+    cma_area_band = 0.25   # CMA comparables within ±25% of the target area
+
     [ntfy]
     topic = "flatview-abc123"          # subscribe to this topic in the ntfy app
     # server = "https://ntfy.sh"       # or a self-hosted instance
@@ -58,10 +62,17 @@ class TrackingConfig:
 
 
 @dataclass
+class AnalyticsConfig:
+    iqr_k: float = 1.5  # IQR fence multiplier for two-sided outliers
+    cma_area_band: float = 0.25  # comparables within ±band of the CMA target area
+
+
+@dataclass
 class Config:
     smtp: SmtpConfig | None = None
     ntfy: NtfyConfig | None = None
     tracking: TrackingConfig = field(default_factory=TrackingConfig)
+    analytics: AnalyticsConfig = field(default_factory=AnalyticsConfig)
 
 
 def default_config_path() -> Path:
@@ -125,4 +136,15 @@ def load_config(path: Path | None = None) -> Config:
         digest_dir=Path(t["digest_dir"]).expanduser() if "digest_dir" in t else None,
         email_only_on_events=bool(t.get("email_only_on_events", True)),
     )
-    return Config(smtp=smtp, ntfy=ntfy, tracking=tracking)
+
+    a = raw.get("analytics", {})
+    analytics = AnalyticsConfig(
+        iqr_k=float(a.get("iqr_k", 1.5)),
+        cma_area_band=float(a.get("cma_area_band", 0.25)),
+    )
+    if analytics.iqr_k <= 0:
+        raise ConfigError(f"{cfg_path}: analytics.iqr_k must be > 0")
+    if not 0 < analytics.cma_area_band <= 1:
+        raise ConfigError(f"{cfg_path}: analytics.cma_area_band must be in (0, 1]")
+
+    return Config(smtp=smtp, ntfy=ntfy, tracking=tracking, analytics=analytics)

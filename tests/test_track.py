@@ -262,6 +262,22 @@ def test_stats_computed_on_unique_pool(conn, watch, make_listing, monkeypatch):
     assert ev.stats["price"]["n"] == 2  # the triple-posted flat counts once
 
 
+def test_custom_iqr_k_changes_flagging(conn, watch, make_listing, monkeypatch):
+    # pm2 pool [1000, 2000, 2100, 2200, 3200]: default fences 1700/2500 flag
+    # both extremes; k=10 widens the fence so nothing is an outlier.
+    listings = [
+        make_listing(id=i, title=f"byt {i}", price=p, area=10)
+        for i, p in enumerate([10_000, 20_000, 21_000, 22_000, 32_000])
+    ]
+    _patch_scrape(monkeypatch, _result(listings))
+    ev = run_watch(conn, None, watch, observed_at="2026-07-01")
+    assert len(ev.bargains) == 1 and len(ev.overpriced) == 1
+
+    ev = run_watch(conn, None, watch, observed_at="2026-07-02", iqr_k=10.0)
+    assert ev.bargains == [] and ev.overpriced == []
+    assert ev.fence is not None and ev.fence[0] < 1000  # widened fence
+
+
 def test_trend_populated_after_runs(conn, watch, make_listing, monkeypatch):
     _patch_scrape(monkeypatch, _result([make_listing(id=1, price=100_000, area=50)]))
     ev1 = run_watch(conn, None, watch, observed_at="2026-07-01")

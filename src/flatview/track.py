@@ -139,6 +139,7 @@ def run_watch(
     *,
     observed_at: str | None = None,
     delist_after_days: int = 2,
+    iqr_k: float = 1.5,
     dry_run: bool = False,
 ) -> WatchEvents:
     """Scrape one watch and detect events. Mutates the DB unless dry_run."""
@@ -232,11 +233,11 @@ def run_watch(
                 mark_delisted(conn, watch.id, [(r[0], r[1]) for r in rows], at=observed_at)
 
     # Analytics run on the deduped pool so cross-posted flats count once.
-    flag_outliers_iqr(unique)
+    flag_outliers_iqr(unique, k=iqr_k)
     events.bargains = [l for l in unique if l.outlier_side == "bargain"]
     events.overpriced = [l for l in unique if l.outlier_side == "overpriced"]
     events.cheapest = cheapest_by_pm2(unique, n=5)
-    events.fence = iqr_fence(unique)
+    events.fence = iqr_fence(unique, k=iqr_k)
     events.stats = compute_stats(unique)
 
     # Trends read the freshly upserted history, so they only exist for real
@@ -270,6 +271,7 @@ def run_track(
     watch_name: str | None = None,
     dry_run: bool = False,
     delist_after_days: int = 2,
+    iqr_k: float = 1.5,
     client: BazosClient | None = None,
     observed_at: str | None = None,
 ) -> tuple[int, list[WatchEvents]]:
@@ -302,6 +304,7 @@ def run_track(
                 watch,
                 observed_at=observed_at,
                 delist_after_days=delist_after_days,
+                iqr_k=iqr_k,
                 dry_run=dry_run,
             )
             all_events.append(events)
