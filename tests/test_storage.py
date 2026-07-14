@@ -4,7 +4,6 @@ from flatview.storage import (
     backfill_history,
     backup_db,
     listing_key,
-    median_pm2_over_time,
     open_db,
     query_recent_count,
     upsert_listings,
@@ -115,19 +114,3 @@ def test_query_recent_count(tmp_path, make_listing):
     upsert_listings(conn, [make_listing(id=2, price=200_000)], observed_at="2000-01-01")
 
     assert query_recent_count(conn, days=30) == 1
-
-
-def test_median_pm2_interpolates_even_count(tmp_path, make_listing):
-    from datetime import date
-
-    conn = open_db(tmp_path / "test.db")
-    today = date.today().isoformat()
-    # Two listings observed the same day: 1000 and 2000 EUR/m².
-    listings = [
-        make_listing(id=1, price=100_000, area=100.0),  # 1000 /m²
-        make_listing(id=2, price=100_000, area=50.0),  # 2000 /m²
-    ]
-    upsert_listings(conn, listings, observed_at=today)
-
-    series = median_pm2_over_time(conn, days=30)
-    assert series == [(today, 1500.0)]  # interpolated, not the upper middle element

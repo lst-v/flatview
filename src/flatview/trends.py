@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 from flatview.analytics import PLACEHOLDER_PRICE_MAX, compute_percentiles
+from flatview.models import Listing
+from flatview.storage import listing_key
 
 
 @dataclass
@@ -191,6 +193,57 @@ def rolling_median_pm2(
         if median is not None:
             out.append((d, median))
     return out
+
+
+def median_pm2_series_for_listings(
+    conn: sqlite3.Connection,
+    listings: list[Listing],
+    *,
+    on_date: str,
+    days: int = 180,
+) -> list[tuple[str, float]]:
+    """As-of median €/m² series scoped to exactly the given listings.
+
+    Replays each listing's price history: on date D it counts with its most
+    recent price on or before D, and not at all before it first appeared.
+    Only the passed entities enter the series, so a report chart stays
+    scoped to its own query — a Košice search never bends a Michalovce
+    chart. Note the pool is today's result set, so points far in the past
+    omit flats that have since delisted (survivor bias).
+    """
+    cutoff = (date.fromisoformat(on_date) - timedelta(days=days)).isoformat()
+
+    replays: list[tuple[Listing, list[tuple[str, float]]]] = []
+    for l in listings:
+        rows = conn.execute(
+            """SELECT observed_at, price FROM price_history
+               WHERE source = ? AND listing_key = ? AND price IS NOT NULL
+               ORDER BY observed_at""",
+            (l.source, listing_key(l)),
+        ).fetchall()
+        if rows:
+            replays.append((l, rows))
+
+    change_dates = {d for _, rows in replays for d, _ in rows}
+    dates = sorted(d for d in change_dates | {on_date} if cutoff <= d <= on_date)
+
+    series: list[tuple[str, float]] = []
+    for day in dates:
+        entities: dict[tuple, tuple[float, float | None]] = {}
+        for l, rows in replays:
+            past = [price for observed, price in rows if observed <= day]
+            if not past:
+                continue  # not yet on the market
+            key = _entity_key(l.source, listing_key(l), past[-1], l.area)
+            entities.setdefault(key, (past[-1], l.area))
+        pm2s = [
+            price / area
+            for price, area in entities.values()
+            if price > PLACEHOLDER_PRICE_MAX and area and area > 0
+        ]
+        if pm2s:
+            series.append((day, compute_percentiles(pm2s, (50,))[50]))
+    return series
 
 
 def compute_trend(

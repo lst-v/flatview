@@ -7,6 +7,7 @@ from flatview.trends import (
     activity_since,
     compute_trend,
     days_on_market_stats,
+    median_pm2_series_for_listings,
     price_cut_stats,
     rolling_median_pm2,
     snapshot,
@@ -235,6 +236,60 @@ def test_price_cut_ignores_delisted(conn):
     cuts = price_cut_stats(conn, WATCH_ID, since="2026-07-01")
     assert cuts.n_active == 0
     assert cuts.n_cut == 0
+
+
+# --- query-scoped as-of series (report chart) ---
+
+
+def _seed_history(conn, source, key, prices):
+    for observed_at, price in prices:
+        conn.execute(
+            "INSERT INTO price_history VALUES (?,?,?,?)", (source, key, observed_at, price)
+        )
+    conn.commit()
+
+
+def test_series_replays_prices_as_of_each_date(conn, make_listing):
+    a = make_listing(id=1, area=50)
+    b = make_listing(id=2, area=50)
+    _seed_history(conn, "bazos", "1", [("2026-07-01", 100_000), ("2026-07-08", 90_000)])
+    _seed_history(conn, "bazos", "2", [("2026-07-05", 110_000)])  # appears mid-window
+
+    series = median_pm2_series_for_listings(conn, [a, b], on_date="2026-07-10")
+    assert series == [
+        ("2026-07-01", pytest.approx(2000.0)),  # only A on the market
+        ("2026-07-05", pytest.approx(2100.0)),  # A 2000 + B 2200
+        ("2026-07-08", pytest.approx(2000.0)),  # A cut to 1800
+        ("2026-07-10", pytest.approx(2000.0)),  # unchanged as of today
+    ]
+
+
+def test_series_scoped_to_passed_listings_only(conn, make_listing):
+    # A Košice listing lives in the same DB but is not part of this query's
+    # results — it must not bend the series.
+    michalovce = make_listing(id=1, area=50, city="Michalovce")
+    _seed_history(conn, "bazos", "1", [("2026-07-01", 100_000)])
+    _seed_history(conn, "bazos", "999", [("2026-07-01", 900_000)])  # Košice, not passed
+
+    series = median_pm2_series_for_listings(conn, [michalovce], on_date="2026-07-10")
+    assert [m for _, m in series] == [pytest.approx(2000.0), pytest.approx(2000.0)]
+
+
+def test_series_collapses_cross_posts_and_placeholders(conn, make_listing):
+    a = make_listing(id=1, source="bazos", area=51.6)
+    b = make_listing(id="slug-1", source="nehnutelnosti", area=52.0)  # same flat
+    token = make_listing(id=3, area=50)  # 1-€ reservation ad
+    _seed_history(conn, "bazos", "1", [("2026-07-01", 108_990)])
+    _seed_history(conn, "nehnutelnosti", "slug-1", [("2026-07-01", 108_990)])
+    _seed_history(conn, "bazos", "3", [("2026-07-01", 1.0)])
+
+    series = median_pm2_series_for_listings(conn, [a, b, token], on_date="2026-07-01")
+    assert len(series) == 1
+    assert series[0][1] == pytest.approx(108_990 / 51.6)  # one flat, counted once
+
+
+def test_series_empty_without_history(conn, make_listing):
+    assert median_pm2_series_for_listings(conn, [make_listing(id=1)], on_date="2026-07-10") == []
 
 
 # --- rolling series & full trend ---

@@ -13,7 +13,6 @@ import sqlite3
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from flatview.analytics import compute_percentiles
 from flatview.models import Listing
 
 _SCHEMA = """
@@ -219,30 +218,6 @@ def query_recent_count(
             (cutoff,),
         )
     return int(cur.fetchone()[0])
-
-
-def median_pm2_over_time(conn: sqlite3.Connection, *, days: int = 180) -> list[tuple[str, float]]:
-    """Return [(observed_at, median_pm2)] across recent observations.
-
-    Joins price_history with listings.area; only listings with area > 0 contribute.
-    """
-    cutoff = (datetime.now(UTC).date() - timedelta(days=days)).isoformat()
-    cur = conn.execute(
-        """SELECT ph.observed_at, ph.price, l.area
-           FROM price_history ph
-           JOIN listings l ON l.source=ph.source AND l.listing_key=ph.listing_key
-           WHERE ph.observed_at >= ? AND l.area > 0 AND ph.price IS NOT NULL""",
-        (cutoff,),
-    )
-    by_date: dict[str, list[float]] = {}
-    for observed_at, price, area in cur.fetchall():
-        if area and area > 0:
-            by_date.setdefault(observed_at, []).append(price / area)
-    out: list[tuple[str, float]] = []
-    for d in sorted(by_date):
-        m = compute_percentiles(by_date[d], (50,))[50]
-        out.append((d, m))
-    return out
 
 
 def backup_db(

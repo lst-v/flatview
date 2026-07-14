@@ -214,6 +214,32 @@ def test_report_cma_comps_dedupe_cross_posts(tmp_path, make_listing):
     assert comps.count("MASARYKOVÁ") == 1  # the cross-posted flat is one comp, not two
 
 
+def test_history_chart_scoped_to_query(tmp_path, make_listing):
+    from datetime import date, timedelta
+
+    from flatview.storage import open_db, upsert_listings
+
+    conn = open_db(tmp_path / "t.db")
+    today = date.today().isoformat()
+    earlier = (date.today() - timedelta(days=5)).isoformat()
+    listings = [make_listing(id=i, title=f"byt {i}", price=100_000, area=50) for i in range(4)]
+    upsert_listings(conn, listings, observed_at=earlier)
+    listings[0].price = 90_000  # a cut today gives the series a second point
+    upsert_listings(conn, listings, observed_at=today)
+
+    out = tmp_path / "hist.html"
+    render_report(
+        listings,
+        query="byt",
+        location="MI",
+        sources=["bazos.sk"],
+        out_path=out,
+        history_conn=conn,
+    )
+    assert "this query" in out.read_text(encoding="utf-8")  # scoped history chart title
+    conn.close()
+
+
 def test_render_report_cma_custom_band(tmp_path, make_listing):
     listings = [
         make_listing(id=i, title=f"3i byt {i}", price=80_000 + i * 4_000, area=50 + i)

@@ -8,6 +8,7 @@ you need a fully offline bundle (~3MB heavier).
 from __future__ import annotations
 
 import sqlite3
+from datetime import date
 from pathlib import Path
 from typing import Literal
 
@@ -25,7 +26,8 @@ from flatview.analytics import (
 )
 from flatview.dedup import dedupe
 from flatview.models import Listing
-from flatview.storage import median_pm2_over_time, query_recent_count
+from flatview.storage import query_recent_count
+from flatview.trends import median_pm2_series_for_listings
 
 _TEMPLATE = Template(
     """<!doctype html>
@@ -204,7 +206,10 @@ _CHART_HEIGHT = 420  # px — 100% heights collapse to zero inside auto-height c
 
 
 def _build_charts(
-    df: pd.DataFrame, exclude_outliers: bool, conn: sqlite3.Connection | None
+    df: pd.DataFrame,
+    exclude_outliers: bool,
+    conn: sqlite3.Connection | None,
+    listings: list[Listing],
 ) -> list[str]:
     work = df[~df["is_outlier"]] if exclude_outliers else df
     figs = []
@@ -261,7 +266,7 @@ def _build_charts(
             )
         )
 
-    if (hist_fig := _build_history_fig(conn)) is not None:
+    if (hist_fig := _build_history_fig(conn, listings)) is not None:
         figs.append(hist_fig)
 
     # Exactly the first rendered chart carries the plotly.js CDN script —
@@ -277,10 +282,11 @@ def _build_charts(
     ]
 
 
-def _build_history_fig(conn: sqlite3.Connection | None):
+def _build_history_fig(conn: sqlite3.Connection | None, listings: list[Listing]):
+    """As-of median €/m² over time, scoped to this query's listings only."""
     if conn is None:
         return None
-    series = median_pm2_over_time(conn)
+    series = median_pm2_series_for_listings(conn, listings, on_date=date.today().isoformat())
     if len(series) < 2:
         return None
     df = pd.DataFrame(series, columns=["observed_at", "median_pm2"])
@@ -289,7 +295,7 @@ def _build_history_fig(conn: sqlite3.Connection | None):
         df,
         x="observed_at",
         y="median_pm2",
-        title="Median €/m² over time (across all stored observations)",
+        title="Median €/m² over time (this query's listings, market state as of each date)",
         markers=True,
     )
 
@@ -477,7 +483,7 @@ def render_report(
     df = _listings_to_df(unique)
     overall = compute_stats(unique, exclude_outliers=exclude_outliers)
 
-    charts = _build_charts(df, exclude_outliers, history_conn)
+    charts = _build_charts(df, exclude_outliers, history_conn, unique)
 
     stats_html = _build_stats_section(unique, exclude_outliers)
     outlier_html = _build_outlier_section(unique, iqr_k=iqr_k)
