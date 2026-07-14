@@ -14,6 +14,8 @@ means defaults; a malformed file raises ConfigError. Example:
     [tracking]
     delist_after_days = 2
     email_only_on_events = true
+    backup_keep = 7                # daily DB backups to keep (0 disables)
+    # healthcheck_url = "https://hc-ping.com/<uuid>"  # pinged after every track run
 
     [analytics]
     iqr_k = 1.5            # outlier fence multiplier; lower = more sensitive
@@ -59,6 +61,8 @@ class TrackingConfig:
     delist_after_days: int = 2
     digest_dir: Path | None = None
     email_only_on_events: bool = True
+    backup_keep: int = 7  # daily DB backups to keep; 0 disables backups
+    healthcheck_url: str = ""  # e.g. healthchecks.io ping URL; "" disables
 
 
 @dataclass
@@ -135,7 +139,11 @@ def load_config(path: Path | None = None) -> Config:
         delist_after_days=int(t.get("delist_after_days", 2)),
         digest_dir=Path(t["digest_dir"]).expanduser() if "digest_dir" in t else None,
         email_only_on_events=bool(t.get("email_only_on_events", True)),
+        backup_keep=int(t.get("backup_keep", 7)),
+        healthcheck_url=str(t.get("healthcheck_url", "")),
     )
+    if tracking.backup_keep < 0:
+        raise ConfigError(f"{cfg_path}: tracking.backup_keep must be >= 0")
 
     a = raw.get("analytics", {})
     analytics = AnalyticsConfig(

@@ -97,6 +97,8 @@ to = ["me@gmail.com"]
 [tracking]
 delist_after_days = 2          # grace window before a missing listing counts as delisted
 email_only_on_events = true    # false = email every run, even with no changes
+backup_keep = 7                # daily DB backups kept in ~/.local/share/flatview/backups (0 = off)
+# healthcheck_url = "https://hc-ping.com/<uuid>"   # pinged after each run (/fail on failure)
 
 [analytics]
 iqr_k = 1.5                    # outlier fence multiplier; lower flags more bargains/overpriced
@@ -149,6 +151,8 @@ launchctl start sk.flatview.track   # test it now
 ```
 
 `track` exits 0 when all watches succeed, 1 when any watch fails (network down, portal unreachable), 2 on usage/config errors. A failed run never mutates tracking state, so a flaky network cannot cause false delistings.
+
+**Ops safety nets**: each non-dry run snapshots the DB first (daily, rotated per `backup_keep`, via the SQLite backup API). With `healthcheck_url` set (e.g. a free [healthchecks.io](https://healthchecks.io) check), every run pings it — success or `/fail` — so you get alerted when the schedule silently stops firing, not just when a scrape fails.
 
 ## CLI options
 

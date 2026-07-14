@@ -342,6 +342,25 @@ def test_run_track_error_exit_code(tmp_path, monkeypatch):
     assert events[0].error == "down"
 
 
+def test_run_track_backup(tmp_path, make_listing, monkeypatch):
+    db = tmp_path / "t.db"
+    conn = open_db(db)
+    add_watch(conn, Watch(name="a"))
+    conn.close()
+    _patch_scrape(monkeypatch, _result([make_listing(id=1)]))
+
+    run_track(db_path=db)
+    assert len(list((tmp_path / "backups").glob("flatview-*.db"))) == 1
+
+    db2 = tmp_path / "sub" / "d.db"
+    conn = open_db(db2)
+    add_watch(conn, Watch(name="a"))
+    conn.close()
+    run_track(db_path=db2, dry_run=True)  # dry-run: no backup
+    run_track(db_path=db2, backup_keep=0)  # disabled: no backup
+    assert not (tmp_path / "sub" / "backups").exists()
+
+
 def test_run_track_unknown_watch(tmp_path):
     db = tmp_path / "t.db"
     open_db(db).close()

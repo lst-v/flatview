@@ -245,6 +245,38 @@ def median_pm2_over_time(conn: sqlite3.Connection, *, days: int = 180) -> list[t
     return out
 
 
+def backup_db(
+    conn: sqlite3.Connection,
+    backup_dir: Path,
+    *,
+    keep: int = 7,
+    today: str | None = None,
+) -> Path | None:
+    """Daily DB backup with rotation: at most one per day, newest `keep` retained.
+
+    Uses the SQLite backup API for a consistent copy even with the connection
+    open. Returns the backup path, or None when today's already exists or
+    backups are disabled (keep <= 0).
+    """
+    if keep <= 0:
+        return None
+    today = today or date.today().isoformat()
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    path = backup_dir / f"flatview-{today}.db"
+    if path.exists():
+        return None
+
+    dest = sqlite3.connect(str(path))
+    try:
+        conn.backup(dest)
+    finally:
+        dest.close()
+
+    for old in sorted(backup_dir.glob("flatview-*.db"))[:-keep]:
+        old.unlink()
+    return path
+
+
 # --- Watch-run tracking (used by `flatview track`) ---
 
 

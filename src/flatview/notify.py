@@ -68,3 +68,14 @@ def send_ntfy(cfg: NtfyConfig, *, title: str, message: str) -> None:
     if resp.status_code >= 400:
         raise NotifyError(f"ntfy push failed: HTTP {resp.status_code} — {resp.text[:200]}")
     logger.info("ntfy push sent to %s/%s", cfg.server, cfg.topic)
+
+
+def ping_healthcheck(url: str, *, ok: bool) -> None:
+    """Ping a healthchecks.io-style URL (append /fail on failure). Never raises —
+    a monitoring outage must not change the track exit code."""
+    target = url.rstrip("/") + ("" if ok else "/fail")
+    try:
+        requests.get(target, timeout=10)
+        logger.info("healthcheck pinged: %s", target)
+    except requests.RequestException as e:
+        logger.warning("healthcheck ping failed: %s", e)

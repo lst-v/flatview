@@ -52,6 +52,22 @@ def test_full_config_parsed(tmp_path, monkeypatch):
     assert cfg.tracking.email_only_on_events is False
 
 
+def test_tracking_ops_fields(tmp_path):
+    cfg = load_config(tmp_path / "nope.toml")
+    assert cfg.tracking.backup_keep == 7
+    assert cfg.tracking.healthcheck_url == ""
+
+    path = tmp_path / "config.toml"
+    path.write_text('[tracking]\nbackup_keep = 14\nhealthcheck_url = "https://hc-ping.com/x"\n')
+    cfg = load_config(path)
+    assert cfg.tracking.backup_keep == 14
+    assert cfg.tracking.healthcheck_url == "https://hc-ping.com/x"
+
+    path.write_text("[tracking]\nbackup_keep = -1\n")
+    with pytest.raises(ConfigError, match="backup_keep"):
+        load_config(path)
+
+
 def test_analytics_defaults(tmp_path):
     cfg = load_config(tmp_path / "nope.toml")
     assert cfg.analytics.iqr_k == 1.5

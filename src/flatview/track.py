@@ -26,6 +26,7 @@ from flatview.models import Listing
 from flatview.scrape import scrape
 from flatview.storage import (
     backfill_history,
+    backup_db,
     default_db_path,
     find_delistable,
     get_prior_prices,
@@ -272,6 +273,7 @@ def run_track(
     dry_run: bool = False,
     delist_after_days: int = 2,
     iqr_k: float = 1.5,
+    backup_keep: int = 7,
     client: BazosClient | None = None,
     observed_at: str | None = None,
 ) -> tuple[int, list[WatchEvents]]:
@@ -279,7 +281,17 @@ def run_track(
 
     Exit codes: 0 = all ok, 1 = at least one watch failed, 2 = usage error.
     """
-    conn = open_db(db_path or default_db_path())
+    db_path = db_path or default_db_path()
+    conn = open_db(db_path)
+
+    # Snapshot the DB before this run mutates it (daily, rotated).
+    if not dry_run:
+        try:
+            backup = backup_db(conn, db_path.parent / "backups", keep=backup_keep)
+            if backup:
+                logger.info("DB backed up to %s", backup)
+        except (sqlite3.Error, OSError) as e:
+            logger.warning("DB backup failed: %s", e)
     client = client or BazosClient()
     try:
         if watch_name:

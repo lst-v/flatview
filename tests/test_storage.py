@@ -2,12 +2,45 @@ from __future__ import annotations
 
 from flatview.storage import (
     backfill_history,
+    backup_db,
     listing_key,
     median_pm2_over_time,
     open_db,
     query_recent_count,
     upsert_listings,
 )
+
+
+def test_backup_db_daily_and_rotation(tmp_path, make_listing):
+    conn = open_db(tmp_path / "test.db")
+    upsert_listings(conn, [make_listing(id=1)], observed_at="2026-07-01")
+    backups = tmp_path / "backups"
+
+    path = backup_db(conn, backups, keep=3, today="2026-07-01")
+    assert path is not None and path.name == "flatview-2026-07-01.db"
+    # Backup is a consistent, readable copy.
+    copy = open_db(path)
+    assert copy.execute("SELECT COUNT(*) FROM listings").fetchone()[0] == 1
+    copy.close()
+
+    # Same day: no second backup.
+    assert backup_db(conn, backups, keep=3, today="2026-07-01") is None
+
+    # Rotation keeps only the newest `keep`.
+    for day in ("2026-07-02", "2026-07-03", "2026-07-04"):
+        backup_db(conn, backups, keep=3, today=day)
+    names = sorted(p.name for p in backups.glob("flatview-*.db"))
+    assert names == [
+        "flatview-2026-07-02.db",
+        "flatview-2026-07-03.db",
+        "flatview-2026-07-04.db",
+    ]
+
+
+def test_backup_db_disabled(tmp_path, make_listing):
+    conn = open_db(tmp_path / "test.db")
+    assert backup_db(conn, tmp_path / "backups", keep=0, today="2026-07-01") is None
+    assert not (tmp_path / "backups").exists()
 
 
 def test_listing_key_uses_id(make_listing):

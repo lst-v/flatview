@@ -418,6 +418,7 @@ def cmd_track(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         delist_after_days=config.tracking.delist_after_days,
         iqr_k=config.analytics.iqr_k,
+        backup_keep=config.tracking.backup_keep,
     )
 
     for ev in all_events:
@@ -492,6 +493,13 @@ def cmd_track(args: argparse.Namespace) -> int:
             except NotifyError as e:
                 console.print(f"[red]{e}[/red]")
                 code = code or 1
+
+    # Dead-man's switch: ping after the whole run so a hung/broken schedule
+    # (not just a failed scrape) surfaces in monitoring.
+    if config.tracking.healthcheck_url:
+        from flatview.notify import ping_healthcheck
+
+        ping_healthcheck(config.tracking.healthcheck_url, ok=code == 0)
     return code
 
 

@@ -71,6 +71,32 @@ def test_send_ntfy_raises_on_network_error(cfg, monkeypatch):
         send_ntfy(cfg, title="t", message="m")
 
 
+# --- healthcheck ping ---
+
+
+def test_ping_healthcheck_ok_and_fail(monkeypatch):
+    from flatview.notify import ping_healthcheck
+
+    calls = []
+    monkeypatch.setattr(
+        "flatview.notify.requests.get",
+        lambda url, timeout: calls.append(url) or FakeResponse(),
+    )
+    ping_healthcheck("https://hc-ping.com/abc", ok=True)
+    ping_healthcheck("https://hc-ping.com/abc/", ok=False)
+    assert calls == ["https://hc-ping.com/abc", "https://hc-ping.com/abc/fail"]
+
+
+def test_ping_healthcheck_never_raises(monkeypatch):
+    from flatview.notify import ping_healthcheck
+
+    def fake_get(url, timeout):
+        raise requests.ConnectionError("down")
+
+    monkeypatch.setattr("flatview.notify.requests.get", fake_get)
+    ping_healthcheck("https://hc-ping.com/abc", ok=True)  # must not raise
+
+
 # --- message building ---
 
 
