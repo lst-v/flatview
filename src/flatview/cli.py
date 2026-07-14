@@ -410,8 +410,9 @@ def cmd_track(args: argparse.Namespace) -> int:
                 f"{ev.n_listings} listings recorded (new-listing alerts start next run)"
             )
         else:
+            unique = f" ({ev.n_unique} unique)" if ev.n_unique != ev.n_listings else ""
             console.print(
-                f"[cyan]{ev.watch.name}[/cyan]: {ev.n_listings} listings — "
+                f"[cyan]{ev.watch.name}[/cyan]: {ev.n_listings} listings{unique} — "
                 f"[green]{len(ev.new)} new[/green], "
                 f"{len(ev.price_drops)} price drops, "
                 f"{len(ev.delisted)} delisted, "

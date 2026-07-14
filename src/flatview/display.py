@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import difflib
-
 from rich.console import Console
 from rich.table import Table
 
 from flatview.analytics import compute_stats, price_per_m2, stats_by_segment
-from flatview.models import Listing, SearchResult
+from flatview.dedup import dedupe, find_duplicate_groups
+from flatview.models import SearchResult
 
 _SEG_STYLE = {
     "new": "[green]NEW[/green]",
@@ -16,27 +15,11 @@ _SEG_STYLE = {
 
 
 def _find_duplicates(results: list[SearchResult]) -> set[int]:
-    """Find listings that appear on multiple sources via fuzzy title matching."""
-    groups: dict[str, list[Listing]] = {}
-    for r in results:
-        for listing in r.listings:
-            groups.setdefault(listing.source, []).append(listing)
-
-    sources = list(groups.keys())
-    if len(sources) < 2:
-        return set()
-
+    """ids of listings that appear on multiple sources (entity resolution)."""
+    all_listings = [l for r in results for l in r.listings]
     dup_ids: set[int] = set()
-    for i, src_a in enumerate(sources):
-        for src_b in sources[i + 1 :]:
-            for la in groups[src_a]:
-                for lb in groups[src_b]:
-                    ratio = difflib.SequenceMatcher(
-                        None, la.title.lower(), lb.title.lower()
-                    ).ratio()
-                    if ratio >= 0.7:
-                        dup_ids.add(id(la))
-                        dup_ids.add(id(lb))
+    for group in find_duplicate_groups(all_listings):
+        dup_ids.update(id(l) for l in group)
     return dup_ids
 
 
@@ -148,21 +131,22 @@ def print_multi_results(
             )
             console.print()
 
-    # Combined summary
+    # Combined summary — stats over deduped listings so cross-posts count once.
     all_listings = [l for r in results for l in r.listings]
     if len(results) > 1 and all_listings:
         sources = [r.site for r in results if r.listings]
         dup_count = sum(1 for l in all_listings if id(l) in dup_ids)
+        unique = dedupe(all_listings)
         console.print(
-            f"\n[bold]Combined summary[/bold] ({len(all_listings)} listings "
-            f"from {', '.join(sources)})"
+            f"\n[bold]Combined summary[/bold] ({len(all_listings)} listings, "
+            f"{len(unique)} unique, from {', '.join(sources)})"
         )
         if dup_count:
             console.print(
-                f"[yellow]Detected {dup_count} potential cross-source duplicates "
-                "(marked with *)[/yellow]"
+                f"[yellow]Detected {dup_count} cross-source duplicates "
+                "(marked with *; stats count each flat once)[/yellow]"
             )
-        _print_price_summary(console, all_listings, exclude_outliers=exclude_outliers)
+        _print_price_summary(console, unique, exclude_outliers=exclude_outliers)
 
 
 def _fmt_stat(v) -> str:

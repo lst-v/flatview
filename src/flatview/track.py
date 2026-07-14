@@ -21,6 +21,7 @@ from flatview.analytics import (
     iqr_fence,
 )
 from flatview.client import BazosClient
+from flatview.dedup import dedupe, find_duplicate_groups
 from flatview.models import Listing
 from flatview.scrape import scrape
 from flatview.storage import (
@@ -85,7 +86,48 @@ class WatchEvents:
     fence: tuple[float, float] | None = None  # (low, high) €/m² IQR fence
     stats: dict = field(default_factory=dict)
     n_listings: int = 0
+    n_unique: int = 0  # after cross-source dedup; stats/outliers are computed on these
     error: str | None = None
+
+
+def _suppress_duplicate_new(
+    new: list[Listing],
+    dup_groups: list[list[Listing]],
+    watch_name: str,
+) -> list[Listing]:
+    """Drop NEW alerts that are cross-posts of the same flat.
+
+    A listing new to one portal but duplicating an already-tracked listing
+    (its group has a non-new member) is a cross-post, not a new flat. When a
+    flat debuts on several portals in the same run, alert once (canonical).
+    """
+    if not new:
+        return new
+    partners: dict[int, list[Listing]] = {}
+    for group in dup_groups:
+        for l in group:
+            partners[id(l)] = [x for x in group if x is not l]
+
+    new_ids = {id(l) for l in new}
+    kept: list[Listing] = []
+    kept_ids: set[int] = set()
+    suppressed = 0
+    for l in new:
+        group_mates = partners.get(id(l), [])
+        if any(id(p) not in new_ids for p in group_mates):
+            suppressed += 1  # cross-post of a flat we already track
+        elif any(id(p) in kept_ids for p in group_mates):
+            suppressed += 1  # same flat already alerted in this run
+        else:
+            kept.append(l)
+            kept_ids.add(id(l))
+    if suppressed:
+        logger.info(
+            "watch '%s': suppressed %d duplicate NEW alert(s) (cross-posted flats)",
+            watch_name,
+            suppressed,
+        )
+    return kept
 
 
 def run_watch(
@@ -155,9 +197,16 @@ def run_watch(
         new_keys = upsert_watch_listings(conn, watch.id, listings, observed_at)
     backfill_history(conn, listings)
 
+    # Cross-source entity resolution: the same flat posted on several portals.
+    dup_groups = find_duplicate_groups(listings)
+    unique = dedupe(listings, dup_groups)
+    events.n_unique = len(unique)
+
     if not events.is_baseline:
         by_key = {(l.source, listing_key(l)): l for l in listings}
-        events.new = [by_key[k] for k in new_keys if k in by_key]
+        events.new = _suppress_duplicate_new(
+            [by_key[k] for k in new_keys if k in by_key], dup_groups, watch.name
+        )
 
     # Delist check: only after a successful, non-empty scrape — an empty or
     # failed run must never mass-delist (HTML drift / network protection).
@@ -180,12 +229,13 @@ def run_watch(
             if not dry_run:
                 mark_delisted(conn, watch.id, [(r[0], r[1]) for r in rows], at=observed_at)
 
-    flag_outliers_iqr(listings)
-    events.bargains = [l for l in listings if l.outlier_side == "bargain"]
-    events.overpriced = [l for l in listings if l.outlier_side == "overpriced"]
-    events.cheapest = cheapest_by_pm2(listings, n=5)
-    events.fence = iqr_fence(listings)
-    events.stats = compute_stats(listings)
+    # Analytics run on the deduped pool so cross-posted flats count once.
+    flag_outliers_iqr(unique)
+    events.bargains = [l for l in unique if l.outlier_side == "bargain"]
+    events.overpriced = [l for l in unique if l.outlier_side == "overpriced"]
+    events.cheapest = cheapest_by_pm2(unique, n=5)
+    events.fence = iqr_fence(unique)
+    events.stats = compute_stats(unique)
 
     if run_id is not None:
         record_run_finish(

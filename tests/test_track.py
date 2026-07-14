@@ -204,6 +204,64 @@ def test_dry_run_writes_nothing(conn, watch, make_listing, monkeypatch):
     assert conn.execute("SELECT COUNT(*) FROM watch_listings").fetchone()[0] == 1
 
 
+def test_cross_posted_new_listing_suppressed(conn, watch, make_listing, monkeypatch):
+    flat = dict(title="MASARYKOVÁ - Priestranný 2 izbový byt", price=108_990, area=59.0)
+    filler = [make_listing(id=i, price=90_000 + i * 1000, title=f"iný {i}") for i in (10, 11)]
+
+    # Baseline: flat tracked on bazos.
+    _patch_scrape(monkeypatch, _result([make_listing(id=1, source="bazos", **flat), *filler]))
+    run_watch(conn, None, watch, observed_at="2026-07-01")
+
+    # Next day the agency cross-posts the same flat to nehnutelnosti.
+    cross_post = make_listing(id=None, source="nehnutelnosti", **flat)
+    _patch_scrape(
+        monkeypatch,
+        _result([make_listing(id=1, source="bazos", **flat), cross_post, *filler]),
+    )
+    ev = run_watch(conn, None, watch, observed_at="2026-07-02")
+
+    assert ev.new == []  # cross-post, not a new flat
+    assert ev.n_unique == 3  # 4 listings, flat counted once
+
+
+def test_flat_debuting_on_two_portals_alerts_once(conn, watch, make_listing, monkeypatch):
+    flat = dict(title="Novinka na Okružnej - 2 izbový byt", price=99_000, area=52.0)
+    filler = make_listing(id=10, price=90_000, title="iný byt")
+
+    _patch_scrape(monkeypatch, _result([filler]))
+    run_watch(conn, None, watch, observed_at="2026-07-01")
+
+    _patch_scrape(
+        monkeypatch,
+        _result(
+            [
+                filler,
+                make_listing(id=2, source="bazos", **flat),
+                make_listing(id=None, source="nehnutelnosti", **flat),
+            ]
+        ),
+    )
+    ev = run_watch(conn, None, watch, observed_at="2026-07-02")
+
+    assert len(ev.new) == 1  # one alert for one flat, not two
+
+
+def test_stats_computed_on_unique_pool(conn, watch, make_listing, monkeypatch):
+    flat = dict(title="MASARYKOVÁ - Priestranný 2 izbový byt", price=108_990, area=59.0)
+    listings = [
+        make_listing(id=1, source="bazos", **flat),
+        make_listing(id=None, source="nehnutelnosti", **flat),
+        make_listing(id=None, source="topreality", **flat),
+        make_listing(id=4, price=90_000, area=50, title="iný byt"),
+    ]
+    _patch_scrape(monkeypatch, _result(listings))
+    ev = run_watch(conn, None, watch, observed_at="2026-07-01")
+
+    assert ev.n_listings == 4
+    assert ev.n_unique == 2
+    assert ev.stats["price"]["n"] == 2  # the triple-posted flat counts once
+
+
 def test_cheapest_populated(conn, watch, make_listing, monkeypatch):
     listings = [
         make_listing(id=1, price=100_000, area=50, title="expensive"),
