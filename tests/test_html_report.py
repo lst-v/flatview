@@ -22,7 +22,7 @@ def test_render_report_writes_file_with_charts(tmp_path, make_listing):
     )
 
     text = out.read_text(encoding="utf-8")
-    assert "flatview report" in text
+    assert "flat<span>view</span>" in text  # wordmark header
     assert "plotly" in text.lower()
     assert "Median (P50)" in text
 
@@ -67,6 +67,57 @@ def test_render_report_cma_mode(tmp_path, make_listing):
     assert "CMA" in text
     assert "Recommended range" in text
     assert "±25%" in text  # default band
+    assert "asking prices" in text  # disclaimer: asking ≠ transaction prices
+    assert text.index("CMA") < text.index("Statistics")  # recommendation leads
+
+
+def test_render_report_cma_segment_filter(tmp_path, make_listing):
+    resale = [
+        make_listing(id=i, title=f"Po rekonštrukcii byt {i}", price=90_000 + i * 1_000, area=54 + i)
+        for i in range(5)
+    ]
+    new_build = [
+        make_listing(id=10 + i, title=f"Novostavba {i}", price=160_000 + i * 1_000, area=54 + i)
+        for i in range(5)
+    ]
+    listings = resale + new_build
+    annotate_segments(listings)
+    out = tmp_path / "cma_seg.html"
+    render_report(
+        listings,
+        query="byt",
+        location="MI",
+        sources=["bazos.sk"],
+        out_path=out,
+        mode="cma",
+        cma_target_area=55,
+        cma_segment="resale",
+    )
+    text = out.read_text(encoding="utf-8")
+    assert "restricted to the <strong>resale</strong> segment" in text
+    assert "Novostavba" not in text.split("Top comparables")[1].split("</table>")[0]
+
+
+def test_render_report_cma_segment_fallback(tmp_path, make_listing):
+    listings = [
+        make_listing(id=i, title=f"Byt {i}", price=90_000 + i * 1_000, area=54 + i)
+        for i in range(6)
+    ]
+    annotate_segments(listings)  # all "unknown" — no new-segment comps
+    out = tmp_path / "cma_fb.html"
+    render_report(
+        listings,
+        query="byt",
+        location="MI",
+        sources=["bazos.sk"],
+        out_path=out,
+        mode="cma",
+        cma_target_area=55,
+        cma_segment="new",
+    )
+    text = out.read_text(encoding="utf-8")
+    assert "using all segments instead" in text
+    assert "Recommended range" in text
 
 
 def test_render_report_cma_custom_band(tmp_path, make_listing):

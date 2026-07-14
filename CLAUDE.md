@@ -24,7 +24,7 @@ Market-tracking CLI for bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk cl
 - `src/flatview/notify.py` — ntfy push: `send_ntfy` (JSON publish to server root — headers are latin-1 only, JSON keeps diacritics), `build_push_message` (phone-sized, capped lines); raises `NotifyError`. `ping_healthcheck` (dead-man's switch, never raises)
 - `src/flatview/display.py` — console tables (rich), grouped multi-source display, duplicate highlighting, ↓/↑ outlier markers
 - `src/flatview/export.py` — CSV, XLSX (openpyxl), PDF (fpdf2) with summary stats
-- `src/flatview/html_report.py` — browser HTML report (Plotly CDN): stats, charts, outlier sections, comparables, CMA mode
+- `src/flatview/html_report.py` — browser HTML report (Plotly CDN), card-based minimal styling: stats, charts, outlier sections, comparables; CMA mode leads with a hero recommendation range + metric chips, optional segment-restricted comps (`cma_segment`, ≥4 or falls back), asking-price disclaimer
 - `src/flatview/errors.py` — `FlatviewError` / `ScrapeError` / `ConfigError` / `EmailError` / `NotifyError`
 - `src/flatview/log.py` — `setup_logging`: RichHandler console + rotating file log at `~/.local/state/flatview/flatview.log`
 
@@ -49,7 +49,7 @@ Search flags (shared by `search` and `watch add`):
 | `--filter` | `""` | Regex filter on listing titles |
 | `--pages` | `1` with query, all without | Pages to scrape (0 = all; watches store 0 by default) |
 
-`search`-only: `--export csv,xlsx,pdf,html`, `--output-dir` (default `output`), `--report full|cma`, `--cma-area FLOAT`, `--remove-outliers`, `--no-store`.
+`search`-only: `--export csv,xlsx,pdf,html`, `--output-dir` (default `output`), `--report full|cma`, `--cma-area FLOAT`, `--cma-segment new|resale` (restrict comps, falls back below 4), `--remove-outliers`, `--no-store`.
 `track`-only: `--watch NAME`, `--dry-run` (no writes/email/push), `--no-email`, `--no-push`, `--config PATH`.
 
 ## Tracking pipeline (`flatview track`)

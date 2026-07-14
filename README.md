@@ -173,7 +173,7 @@ Subcommands: `search` (default), `watch add|list|remove`, `track`. Search flags 
 | `--filter` | | Regex filter on titles |
 | `--pages` | `1` | Pages to scrape (`0` = all; watches default to all) |
 
-`search`-only: `--export csv,xlsx,pdf,html`, `--output-dir`, `--report full|cma`, `--cma-area`, `--remove-outliers`, `--no-store`, `--db-path`. `track`-only: `--watch NAME`, `--dry-run`, `--no-email`, `--no-push`, `--config`. All subcommands accept `-v` for debug logging (file log at `~/.local/state/flatview/flatview.log`).
+`search`-only: `--export csv,xlsx,pdf,html`, `--output-dir`, `--report full|cma`, `--cma-area`, `--cma-segment new|resale`, `--remove-outliers`, `--no-store`, `--db-path`. `track`-only: `--watch NAME`, `--dry-run`, `--no-email`, `--no-push`, `--config`. All subcommands accept `-v` for debug logging (file log at `~/.local/state/flatview/flatview.log`).
 
 ## How it works
 

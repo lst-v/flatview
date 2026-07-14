@@ -30,51 +30,87 @@ _TEMPLATE = Template(
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>flatview — {{ title }}</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-         margin: 24px; color: #222; max-width: 1200px; }
-  h1 { margin-bottom: 4px; }
-  .meta { color: #666; margin-bottom: 24px; }
-  h2 { border-bottom: 1px solid #eee; padding-bottom: 6px; margin-top: 36px; }
-  table { border-collapse: collapse; margin: 12px 0; }
-  th, td { padding: 6px 12px; border: 1px solid #ddd; text-align: right; }
-  th { background: #f6f6f6; }
+  :root {
+    --text: #1a1a1e; --muted: #6b6b76; --faint: #9a9aa4;
+    --line: #e8e8ec; --bg: #f6f6f8; --card: #ffffff;
+    --accent: #1f6feb; --green: #0a7f33; --red: #c62828;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+         "Helvetica Neue", sans-serif; margin: 0; padding: 40px 20px 60px;
+         background: var(--bg); color: var(--text); font-size: 15px;
+         line-height: 1.55; -webkit-font-smoothing: antialiased; }
+  .page { max-width: 1080px; margin: 0 auto; }
+  header { margin-bottom: 28px; }
+  .wordmark { font-size: 22px; font-weight: 700; letter-spacing: -0.03em; }
+  .wordmark span { color: var(--accent); }
+  .meta { color: var(--muted); margin-top: 2px; font-size: 14px; }
+  .meta strong { color: var(--text); font-weight: 600; }
+  section.card { background: var(--card); border: 1px solid var(--line);
+                 border-radius: 12px; padding: 24px 28px; margin: 16px 0; }
+  h2 { font-size: 17px; font-weight: 650; margin: 0 0 12px 0;
+       letter-spacing: -0.01em; }
+  h3 { font-size: 14px; font-weight: 600; color: var(--muted);
+       text-transform: uppercase; letter-spacing: 0.04em; margin: 20px 0 8px; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 14px; }
+  th { font-size: 12px; font-weight: 600; color: var(--faint);
+       text-transform: uppercase; letter-spacing: 0.05em;
+       padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: #fafafb; }
   td:first-child, th:first-child { text-align: left; }
-  .chart { margin: 16px 0 32px 0; }
-  .segment-new { color: #0a7f33; font-weight: 600; }
-  .segment-resale { color: #1f6feb; font-weight: 600; }
-  .segment-unknown { color: #888; }
-  .outlier { background: #fff8e1; }
-  .bargain { background: #e8f5e9; }
-  .overpriced { background: #ffebee; }
-  .small { font-size: 13px; color: #555; }
-  a { color: #1f6feb; text-decoration: none; }
+  .chart { margin: 4px 0; }
+  .segment-new { color: var(--green); font-weight: 600; }
+  .segment-resale { color: var(--accent); font-weight: 600; }
+  .segment-unknown { color: var(--faint); }
+  tr.outlier td { background: #fffbea; }
+  tr.bargain td { background: #f0f9f1; }
+  tr.overpriced td { background: #fdf1f1; }
+  .small { font-size: 13px; color: var(--muted); }
+  a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
+  .hero { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px;
+          margin: 4px 0 16px; }
+  .hero .range { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+  .hero .label { color: var(--muted); font-size: 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+  .chip { background: var(--bg); border: 1px solid var(--line);
+          border-radius: 8px; padding: 8px 14px; font-size: 13px;
+          color: var(--muted); }
+  .chip strong { display: block; font-size: 16px; color: var(--text); }
+  footer { color: var(--faint); font-size: 12px; margin-top: 24px; }
 </style>
 </head>
 <body>
-<h1>flatview report</h1>
-<div class="meta">
-  {% if query %}Query: <strong>{{ query }}</strong> · {% endif %}
-  {% if location %}Location: <strong>{{ location }}</strong> · {% endif %}
-  Sources: {{ sources|join(", ") }} · {{ n_total }} listings
-  {% if currency %} · prices in {{ currency }}{% endif %}
-</div>
+<div class="page">
+<header>
+  <div class="wordmark">flat<span>view</span></div>
+  <div class="meta">
+    {% if query %}<strong>{{ query }}</strong> · {% endif %}
+    {% if location %}{{ location }} · {% endif %}
+    {{ sources|join(", ") }} · {{ n_total }} listings
+    {% if currency %} · prices in {{ currency }}{% endif %}
+  </div>
+</header>
 
-{{ stats_html }}
+{% if cma_html %}<section class="card">{{ cma_html }}</section>{% endif %}
+
+<section class="card">{{ stats_html }}</section>
 
 {% for chart in charts %}
-<div class="chart">{{ chart }}</div>
+<section class="card"><div class="chart">{{ chart }}</div></section>
 {% endfor %}
 
-{% if cma_html %}{{ cma_html }}{% endif %}
+{% if outlier_html %}<section class="card">{{ outlier_html }}</section>{% endif %}
 
-{% if outlier_html %}{{ outlier_html }}{% endif %}
+{% if comparables_html %}<section class="card">{{ comparables_html }}</section>{% endif %}
 
-{{ comparables_html }}
-
-<p class="small">Generated by flatview. Charts powered by plotly.</p>
+<footer>Generated by flatview. Charts powered by plotly.</footer>
+</div>
 </body>
 </html>"""
 )
@@ -291,18 +327,36 @@ def _build_comparables(listings: list[Listing], n: int = 10) -> str:
     )
 
 
+_MIN_SEGMENT_COMPS = 4
+
+
 def _build_cma_view(
     listings: list[Listing],
     target_area: float,
     conn: sqlite3.Connection | None,
     *,
     area_band: float = 0.25,
+    segment: str | None = None,
 ) -> str:
     candidates = [
         l for l in listings if l.area is not None and l.price is not None and not l.is_outlier
     ]
     if not candidates:
         return "<h2>CMA</h2><p>No comparable listings available.</p>"
+
+    # New builds and resales price differently — compare within the subject's
+    # segment when asked and enough comps exist, else fall back to all.
+    seg_note = ""
+    if segment:
+        seg_pool = [l for l in candidates if l.segment == segment]
+        if len(seg_pool) >= _MIN_SEGMENT_COMPS:
+            candidates = seg_pool
+            seg_note = f"Comparables restricted to the <strong>{segment}</strong> segment."
+        else:
+            seg_note = (
+                f"Only {len(seg_pool)} {segment}-segment comparables found — "
+                "using all segments instead."
+            )
 
     candidates.sort(key=lambda l: abs((l.area or 0) - target_area))
     top = candidates[:10]
@@ -325,6 +379,19 @@ def _build_cma_view(
     velocity_30d = query_recent_count(conn, days=30) if conn is not None else None
     currency = top[0].currency or "EUR"
 
+    chips = [
+        f"<div class='chip'>P25 €/m²<strong>{pcts[25]:,.0f}</strong></div>",
+        f"<div class='chip'>Median €/m²<strong>{pcts[50]:,.0f}</strong></div>",
+        f"<div class='chip'>P75 €/m²<strong>{pcts[75]:,.0f}</strong></div>",
+        f"<div class='chip'>Median-based asking<strong>{rec_mid:,.0f} {currency}</strong></div>",
+        f"<div class='chip'>Comparables within ±{area_band:.0%} area"
+        f"<strong>{len(band)}</strong></div>",
+    ]
+    if velocity_30d is not None:
+        chips.append(
+            f"<div class='chip'>Market velocity (30 d)<strong>{velocity_30d}</strong></div>"
+        )
+
     rows = "\n".join(
         f"<tr><td><a href='{l.url}'>{l.title}</a></td><td>{l.source}</td>"
         f"<td><span class='segment-{l.segment}'>{l.segment}</span></td>"
@@ -334,31 +401,21 @@ def _build_cma_view(
         for l in top
     )
 
-    velocity_html = (
-        f"<li>Market velocity (last 30 days, all stored listings): "
-        f"<strong>{velocity_30d}</strong></li>"
-        if velocity_30d is not None
-        else ""
-    )
-
+    seg_html = f"<p class='small'>{seg_note}</p>" if seg_note else ""
     return (
         f"<h2>CMA — target {target_area:.0f} m²</h2>"
-        f"<p>Comparable count (within ±{area_band:.0%} area): <strong>{len(band)}</strong></p>"
-        f"<ul>"
-        f"<li>P25 €/m²: <strong>{pcts[25]:,.0f}</strong> "
-        f"→ asking ~{rec_low:,.0f} {currency}</li>"
-        f"<li>Median €/m²: <strong>{pcts[50]:,.0f}</strong> "
-        f"→ asking ~{rec_mid:,.0f} {currency}</li>"
-        f"<li>P75 €/m²: <strong>{pcts[75]:,.0f}</strong> "
-        f"→ asking ~{rec_high:,.0f} {currency}</li>"
-        f"<li>Recommended range: "
-        f"<strong>{rec_low:,.0f} – {rec_high:,.0f} {currency}</strong></li>"
-        f"{velocity_html}"
-        f"</ul>"
+        f"<div class='hero'><span class='range'>{rec_low:,.0f} – {rec_high:,.0f} "
+        f"{currency}</span><span class='label'>Recommended range "
+        f"(P25–P75 €/m² × {target_area:.0f} m²)</span></div>"
+        f"<div class='chips'>{''.join(chips)}</div>"
+        f"{seg_html}"
         f"<h3>Top comparables by area proximity</h3>"
         f"<table><thead><tr><th>Title</th><th>Source</th><th>Segment</th>"
         f"<th>Price</th><th>Area</th><th>€/m²</th><th>First seen</th></tr></thead>"
         f"<tbody>{rows}</tbody></table>"
+        f"<p class='small'>Based on current asking prices from public listings — "
+        f"not transaction prices. Position within the range by condition, floor, "
+        f"and how quickly a sale is needed.</p>"
     )
 
 
@@ -372,6 +429,7 @@ def render_report(
     mode: Literal["full", "cma"] = "full",
     cma_target_area: float | None = None,
     cma_area_band: float = 0.25,
+    cma_segment: str | None = None,
     history_conn: sqlite3.Connection | None = None,
     exclude_outliers: bool = False,
     iqr_k: float = 1.5,
@@ -390,7 +448,13 @@ def render_report(
 
     cma_html = ""
     if mode == "cma" and cma_target_area is not None:
-        cma_html = _build_cma_view(listings, cma_target_area, history_conn, area_band=cma_area_band)
+        cma_html = _build_cma_view(
+            listings,
+            cma_target_area,
+            history_conn,
+            area_band=cma_area_band,
+            segment=cma_segment,
+        )
 
     html = _TEMPLATE.render(
         title=query or "Listings",

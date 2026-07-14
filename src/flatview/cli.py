@@ -119,6 +119,12 @@ def _add_output_flags(parser: argparse.ArgumentParser) -> None:
         help="Target floor area (m²) for --report cma. Required when --report cma.",
     )
     parser.add_argument(
+        "--cma-segment",
+        default=None,
+        choices=["new", "resale"],
+        help="Restrict CMA comparables to one segment (falls back to all when too few)",
+    )
+    parser.add_argument(
         "--no-store",
         action="store_true",
         help="Skip writing this run to the SQLite history store.",
@@ -309,6 +315,7 @@ def cmd_search(args: argparse.Namespace) -> int:
                     mode=args.report,
                     cma_target_area=args.cma_area,
                     cma_area_band=analytics_cfg.cma_area_band,
+                    cma_segment=args.cma_segment,
                     history_conn=conn,
                     exclude_outliers=args.remove_outliers,
                     iqr_k=analytics_cfg.iqr_k,
