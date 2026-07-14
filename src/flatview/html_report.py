@@ -200,62 +200,84 @@ def _build_stats_section(listings: list[Listing], exclude_outliers: bool) -> str
     return "\n".join(parts)
 
 
-def _build_charts(df: pd.DataFrame, exclude_outliers: bool) -> list[str]:
+_CHART_HEIGHT = 420  # px — 100% heights collapse to zero inside auto-height cards
+
+
+def _build_charts(
+    df: pd.DataFrame, exclude_outliers: bool, conn: sqlite3.Connection | None
+) -> list[str]:
     work = df[~df["is_outlier"]] if exclude_outliers else df
-    charts: list[str] = []
+    figs = []
 
     price_df = work[work["price"].notna()]
     if not price_df.empty:
-        fig = px.histogram(
-            price_df,
-            x="price",
-            color="segment",
-            nbins=30,
-            title="Price distribution",
-            color_discrete_map={"new": "#0a7f33", "resale": "#1f6feb", "unknown": "#888"},
+        figs.append(
+            px.histogram(
+                price_df,
+                x="price",
+                color="segment",
+                nbins=30,
+                title="Price distribution",
+                color_discrete_map={"new": "#0a7f33", "resale": "#1f6feb", "unknown": "#888"},
+            )
         )
-        charts.append(fig.to_html(full_html=False, include_plotlyjs="cdn"))
 
     pm2_df = work[work["pm2"].notna()]
     if not pm2_df.empty:
-        fig = px.histogram(
-            pm2_df,
-            x="pm2",
-            color="segment",
-            nbins=30,
-            title="€/m² distribution",
-            color_discrete_map={"new": "#0a7f33", "resale": "#1f6feb", "unknown": "#888"},
+        figs.append(
+            px.histogram(
+                pm2_df,
+                x="pm2",
+                color="segment",
+                nbins=30,
+                title="€/m² distribution",
+                color_discrete_map={"new": "#0a7f33", "resale": "#1f6feb", "unknown": "#888"},
+            )
         )
-        charts.append(fig.to_html(full_html=False, include_plotlyjs=False))
 
     scatter_df = work[work["price"].notna() & work["area"].notna()]
     if not scatter_df.empty:
-        fig = px.scatter(
-            scatter_df,
-            x="area",
-            y="price",
-            color="segment",
-            hover_data=["title", "city", "url"],
-            title="Area vs price",
-            color_discrete_map={"new": "#0a7f33", "resale": "#1f6feb", "unknown": "#888"},
+        figs.append(
+            px.scatter(
+                scatter_df,
+                x="area",
+                y="price",
+                color="segment",
+                hover_data=["title", "city", "url"],
+                title="Area vs price",
+                color_discrete_map={"new": "#0a7f33", "resale": "#1f6feb", "unknown": "#888"},
+            )
         )
-        charts.append(fig.to_html(full_html=False, include_plotlyjs=False))
 
     if not pm2_df.empty and pm2_df["source"].nunique() > 1:
-        fig = px.box(
-            pm2_df,
-            x="source",
-            y="pm2",
-            color="source",
-            title="€/m² by source",
-            points="outliers",
+        figs.append(
+            px.box(
+                pm2_df,
+                x="source",
+                y="pm2",
+                color="source",
+                title="€/m² by source",
+                points="outliers",
+            )
         )
-        charts.append(fig.to_html(full_html=False, include_plotlyjs=False))
 
-    return charts
+    if (hist_fig := _build_history_fig(conn)) is not None:
+        figs.append(hist_fig)
+
+    # Exactly the first rendered chart carries the plotly.js CDN script —
+    # hardcoding it on a specific chart breaks every chart when that one is
+    # absent (e.g. a history-only report).
+    return [
+        fig.to_html(
+            full_html=False,
+            include_plotlyjs="cdn" if i == 0 else False,
+            default_height=_CHART_HEIGHT,
+        )
+        for i, fig in enumerate(figs)
+    ]
 
 
-def _build_history_chart(conn: sqlite3.Connection | None) -> str | None:
+def _build_history_fig(conn: sqlite3.Connection | None):
     if conn is None:
         return None
     series = median_pm2_over_time(conn)
@@ -263,14 +285,13 @@ def _build_history_chart(conn: sqlite3.Connection | None) -> str | None:
         return None
     df = pd.DataFrame(series, columns=["observed_at", "median_pm2"])
     df["observed_at"] = pd.to_datetime(df["observed_at"])
-    fig = px.line(
+    return px.line(
         df,
         x="observed_at",
         y="median_pm2",
         title="Median €/m² over time (across all stored observations)",
         markers=True,
     )
-    return fig.to_html(full_html=False, include_plotlyjs=False)
 
 
 def _build_outlier_section(listings: list[Listing], *, iqr_k: float = 1.5) -> str:
@@ -456,10 +477,7 @@ def render_report(
     df = _listings_to_df(unique)
     overall = compute_stats(unique, exclude_outliers=exclude_outliers)
 
-    charts = _build_charts(df, exclude_outliers)
-    hist_chart = _build_history_chart(history_conn)
-    if hist_chart:
-        charts.append(hist_chart)
+    charts = _build_charts(df, exclude_outliers, history_conn)
 
     stats_html = _build_stats_section(unique, exclude_outliers)
     outlier_html = _build_outlier_section(unique, iqr_k=iqr_k)

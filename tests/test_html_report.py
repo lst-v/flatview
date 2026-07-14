@@ -28,6 +28,14 @@ def test_render_report_writes_file_with_charts(tmp_path, make_listing):
     assert ">Count<" not in text  # sample sizes are a caption, not a stat row
     assert "8 listings · 8 priced · 8 with €/m²" in text
 
+    # Charts need explicit pixel heights — 100% collapses inside auto-height
+    # cards — and exactly one CDN script tag (on the first chart).
+    n_charts = text.count("plotly-graph-div")
+    assert n_charts >= 3
+    assert text.count("height:420px") == n_charts
+    assert "height:100%" not in text
+    assert text.count("cdn.plot.ly") == 1
+
 
 def test_stats_caption_counts_partial_data(tmp_path, make_listing):
     listings = [
