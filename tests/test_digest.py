@@ -12,6 +12,7 @@ from flatview.digest import (
     write_digest,
 )
 from flatview.track import DelistedInfo, PriceChange, WatchEvents
+from flatview.trends import DaysOnMarketStats, PriceCutStats, TrendSummary
 from flatview.watches import Watch
 
 GENERATED = datetime(2026, 7, 13, 7, 30)
@@ -111,6 +112,58 @@ def test_render_digest_cheapest_section(make_listing):
     assert "Lowest €/m² right now (1)" in html
     assert "Najlacnejší" in html
     assert "-20%" in html  # 1600 vs median 2000
+
+
+def _trend(**overrides):
+    defaults = dict(
+        period_days=7,
+        window_days=30,
+        median_pm2_now=2000.0,
+        median_pm2_prev=1900.0,
+        active_now=57,
+        active_prev=61,
+        n_new=4,
+        n_delisted=2,
+        n_drops=3,
+        days_on_market=DaysOnMarketStats(n=5, median=12.0),
+        cuts=PriceCutStats(n_active=57, n_cut=3, median_cut_pct=-3.2),
+        series=[("2026-07-01", 1900.0), ("2026-07-08", 1950.0), ("2026-07-13", 2000.0)],
+    )
+    defaults.update(overrides)
+    return TrendSummary(**defaults)
+
+
+def test_render_digest_trend_block():
+    ev = WatchEvents(watch=Watch(name="w"), n_listings=57, trend=_trend())
+    html = render_digest([ev], generated_at=GENERATED)
+
+    assert "Market trend" in html
+    assert "+5.3%" in html  # 2000 vs 1900
+    assert "7 d ago" in html
+    assert "-4" in html  # active listings delta
+    assert "Last 7 days: 4 new · 2 delisted · 3 price cuts" in html
+    assert "Median days on market (delisted, last 30 d): 12 (n=5)" in html
+    assert "3 of 57 active listings (5%)" in html and "-3.2%" in html
+    assert "07-01" in html and "07-13" in html  # rolling series
+
+    # Text fallback carries the headline delta.
+    text = render_digest_text([ev])
+    assert "TREND: median €/m² 2,000 (+5.3% vs 7 d ago)" in text
+
+
+def test_trend_block_hidden_on_baseline_and_without_comparison():
+    baseline = WatchEvents(watch=Watch(name="b"), is_baseline=True, n_listings=5, trend=_trend())
+    assert "Market trend" not in render_digest([baseline], generated_at=GENERATED)
+
+    # Young watch: no comparison point yet — block renders without the delta table.
+    young = WatchEvents(
+        watch=Watch(name="y"),
+        n_listings=5,
+        trend=_trend(median_pm2_prev=None, active_now=None, active_prev=None, series=[]),
+    )
+    html = render_digest([young], generated_at=GENERATED)
+    assert "Market trend" in html
+    assert "7 d ago" not in html
 
 
 def test_render_digest_error_and_baseline(make_listing):

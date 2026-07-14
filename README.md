@@ -64,8 +64,22 @@ Each `track` run detects, per watch:
 - **Price drops / increases** — vs the last stored price
 - **Delistings** — listings not seen for 2+ days (configurable); likely sold or withdrawn
 - **Bargains / overpriced** — two-sided IQR outliers on €/m²
+- **Market trend** — median €/m² and active-listing count vs 7 days ago, a 30-day median series, median days on market of recent delistings, and price-cut share/size — all computed from the stored history, cross-posts counted once
 
-Every run writes an HTML digest to `~/.local/share/flatview/digests/` (plus `latest.html`). With SMTP configured, the digest is also emailed — by default only when something actually happened.
+Every run writes an HTML digest to `~/.local/share/flatview/digests/` (plus `latest.html`). With SMTP configured, the digest is also emailed — by default only when something actually happened. With `[ntfy]` configured, event runs additionally send a push notification to your phone.
+
+### Push notifications (ntfy)
+
+[ntfy](https://ntfy.sh) is a free pub-sub push service: install the ntfy app (iOS/Android), subscribe to a topic of your choosing, and flatview publishes to it. Pick a long random topic name — the topic *is* the secret on the public ntfy.sh server.
+
+```toml
+[ntfy]
+topic = "flatview-mysecret-x7q2k9"
+# server = "https://ntfy.sh"   # or your self-hosted instance
+# token: use the FLATVIEW_NTFY_TOKEN env var for protected topics
+```
+
+Pushes are sent only when something happened (new/drops/delisted/failures) — quiet runs stay quiet. `--no-push` skips the push for one run.
 
 ### Email configuration
 
@@ -149,7 +163,7 @@ Subcommands: `search` (default), `watch add|list|remove`, `track`. Search flags 
 | `--filter` | | Regex filter on titles |
 | `--pages` | `1` | Pages to scrape (`0` = all; watches default to all) |
 
-`search`-only: `--export csv,xlsx,pdf,html`, `--output-dir`, `--report full|cma`, `--cma-area`, `--remove-outliers`, `--no-store`, `--db-path`. `track`-only: `--watch NAME`, `--dry-run`, `--no-email`, `--config`. All subcommands accept `-v` for debug logging (file log at `~/.local/state/flatview/flatview.log`).
+`search`-only: `--export csv,xlsx,pdf,html`, `--output-dir`, `--report full|cma`, `--cma-area`, `--remove-outliers`, `--no-store`, `--db-path`. `track`-only: `--watch NAME`, `--dry-run`, `--no-email`, `--no-push`, `--config`. All subcommands accept `-v` for debug logging (file log at `~/.local/state/flatview/flatview.log`).
 
 ## How it works
 

@@ -14,6 +14,11 @@ means defaults; a malformed file raises ConfigError. Example:
     [tracking]
     delist_after_days = 2
     email_only_on_events = true
+
+    [ntfy]
+    topic = "flatview-abc123"          # subscribe to this topic in the ntfy app
+    # server = "https://ntfy.sh"       # or a self-hosted instance
+    # token comes from the FLATVIEW_NTFY_TOKEN env var (or `token = ...` here)
 """
 
 from __future__ import annotations
@@ -39,6 +44,13 @@ class SmtpConfig:
 
 
 @dataclass
+class NtfyConfig:
+    topic: str
+    server: str = "https://ntfy.sh"
+    token: str = ""  # access token for protected topics / self-hosted servers
+
+
+@dataclass
 class TrackingConfig:
     delist_after_days: int = 2
     digest_dir: Path | None = None
@@ -48,6 +60,7 @@ class TrackingConfig:
 @dataclass
 class Config:
     smtp: SmtpConfig | None = None
+    ntfy: NtfyConfig | None = None
     tracking: TrackingConfig = field(default_factory=TrackingConfig)
 
 
@@ -92,10 +105,24 @@ def load_config(path: Path | None = None) -> Config:
         if env_pw:
             smtp.password = env_pw
 
+    ntfy: NtfyConfig | None = None
+    if "ntfy" in raw:
+        n = raw["ntfy"]
+        if "topic" not in n:
+            raise ConfigError(f"{cfg_path}: [ntfy] section requires 'topic'")
+        ntfy = NtfyConfig(
+            topic=n["topic"],
+            server=str(n.get("server", "https://ntfy.sh")).rstrip("/"),
+            token=n.get("token", ""),
+        )
+        env_token = os.environ.get("FLATVIEW_NTFY_TOKEN")
+        if env_token:
+            ntfy.token = env_token
+
     t = raw.get("tracking", {})
     tracking = TrackingConfig(
         delist_after_days=int(t.get("delist_after_days", 2)),
         digest_dir=Path(t["digest_dir"]).expanduser() if "digest_dir" in t else None,
         email_only_on_events=bool(t.get("email_only_on_events", True)),
     )
-    return Config(smtp=smtp, tracking=tracking)
+    return Config(smtp=smtp, ntfy=ntfy, tracking=tracking)

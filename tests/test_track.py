@@ -262,6 +262,29 @@ def test_stats_computed_on_unique_pool(conn, watch, make_listing, monkeypatch):
     assert ev.stats["price"]["n"] == 2  # the triple-posted flat counts once
 
 
+def test_trend_populated_after_runs(conn, watch, make_listing, monkeypatch):
+    _patch_scrape(monkeypatch, _result([make_listing(id=1, price=100_000, area=50)]))
+    ev1 = run_watch(conn, None, watch, observed_at="2026-07-01")
+    assert ev1.trend is not None
+    assert ev1.trend.median_pm2_prev is None  # nothing existed 7 days ago
+
+    _patch_scrape(monkeypatch, _result([make_listing(id=1, price=90_000, area=50)]))
+    ev2 = run_watch(conn, None, watch, observed_at="2026-07-08")
+
+    assert ev2.trend is not None
+    assert ev2.trend.median_pm2_now == pytest.approx(1800.0)
+    assert ev2.trend.median_pm2_prev == pytest.approx(2000.0)
+    assert ev2.trend.pm2_delta_pct == pytest.approx(-10.0)
+    assert ev2.trend.n_drops == 1  # this run's drop counts even before it's recorded
+
+
+def test_dry_run_has_no_trend(conn, watch, make_listing, monkeypatch):
+    _patch_scrape(monkeypatch, _result([make_listing(id=1)]))
+    run_watch(conn, None, watch, observed_at="2026-07-01")
+    ev = run_watch(conn, None, watch, observed_at="2026-07-02", dry_run=True)
+    assert ev.trend is None
+
+
 def test_cheapest_populated(conn, watch, make_listing, monkeypatch):
     listings = [
         make_listing(id=1, price=100_000, area=50, title="expensive"),

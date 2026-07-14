@@ -39,6 +39,7 @@ from flatview.storage import (
     upsert_listings,
     upsert_watch_listings,
 )
+from flatview.trends import TrendSummary, compute_trend
 from flatview.watches import Watch, get_watch, list_watches
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,7 @@ class WatchEvents:
     cheapest: list[Listing] = field(default_factory=list)  # lowest €/m², market low end
     fence: tuple[float, float] | None = None  # (low, high) €/m² IQR fence
     stats: dict = field(default_factory=dict)
+    trend: TrendSummary | None = None  # deltas vs previous period, DOM, price cuts
     n_listings: int = 0
     n_unique: int = 0  # after cross-source dedup; stats/outliers are computed on these
     error: str | None = None
@@ -236,6 +238,18 @@ def run_watch(
     events.cheapest = cheapest_by_pm2(unique, n=5)
     events.fence = iqr_fence(unique)
     events.stats = compute_stats(unique)
+
+    # Trends read the freshly upserted history, so they only exist for real
+    # runs; a trend failure must not abort the run (run row would stay stuck).
+    if not dry_run:
+        try:
+            events.trend = compute_trend(conn, watch.id, on_date=observed_at)
+            # This run isn't recorded yet — fold its events into the activity window.
+            events.trend.n_new += len(events.new)
+            events.trend.n_delisted += len(events.delisted)
+            events.trend.n_drops += len(events.price_drops)
+        except Exception:
+            logger.exception("watch '%s': trend computation failed", watch.name)
 
     if run_id is not None:
         record_run_finish(

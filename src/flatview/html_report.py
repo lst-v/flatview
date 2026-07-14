@@ -104,7 +104,7 @@ def _listings_to_df(listings: list[Listing]) -> pd.DataFrame:
 def _fmt(v) -> str:
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return "—"
-    if isinstance(v, float):
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
         return f"{v:,.0f}"
     return str(v)
 

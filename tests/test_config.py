@@ -19,6 +19,9 @@ starttls = false
 delist_after_days = 5
 digest_dir = "~/digests"
 email_only_on_events = false
+
+[ntfy]
+topic = "flatview-test"
 """
 
 
@@ -47,6 +50,47 @@ def test_full_config_parsed(tmp_path, monkeypatch):
     assert cfg.tracking.digest_dir is not None
     assert cfg.tracking.digest_dir.name == "digests"
     assert cfg.tracking.email_only_on_events is False
+
+
+def test_ntfy_defaults_and_full(tmp_path, monkeypatch):
+    monkeypatch.delenv("FLATVIEW_NTFY_TOKEN", raising=False)
+    path = tmp_path / "config.toml"
+    path.write_text(FULL_TOML)
+    cfg = load_config(path)
+    assert cfg.ntfy is not None
+    assert cfg.ntfy.topic == "flatview-test"
+    assert cfg.ntfy.server == "https://ntfy.sh"
+    assert cfg.ntfy.token == ""
+
+    path.write_text(
+        '[ntfy]\ntopic = "t"\nserver = "https://ntfy.example.com/"\ntoken = "tk_file"\n'
+    )
+    cfg = load_config(path)
+    assert cfg.ntfy is not None
+    assert cfg.ntfy.server == "https://ntfy.example.com"  # trailing slash stripped
+    assert cfg.ntfy.token == "tk_file"
+
+
+def test_ntfy_missing_topic_raises(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[ntfy]\nserver = "https://ntfy.sh"\n')
+    with pytest.raises(ConfigError, match="topic"):
+        load_config(path)
+
+
+def test_ntfy_token_env_override(tmp_path, monkeypatch):
+    monkeypatch.setenv("FLATVIEW_NTFY_TOKEN", "tk_env")
+    path = tmp_path / "config.toml"
+    path.write_text('[ntfy]\ntopic = "t"\ntoken = "tk_file"\n')
+    cfg = load_config(path)
+    assert cfg.ntfy is not None
+    assert cfg.ntfy.token == "tk_env"
+
+
+def test_no_ntfy_section(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[smtp]\nhost = "h"\n')
+    assert load_config(path).ntfy is None
 
 
 def test_env_var_overrides_password(tmp_path, monkeypatch):

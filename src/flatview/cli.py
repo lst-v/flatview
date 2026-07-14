@@ -170,6 +170,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip sending the email digest even when SMTP is configured",
     )
     track.add_argument(
+        "--no-push",
+        action="store_true",
+        help="Skip the ntfy push notification even when [ntfy] is configured",
+    )
+    track.add_argument(
         "--config",
         default=None,
         help="Config file path (default: ~/.config/flatview/config.toml)",
@@ -384,7 +389,7 @@ def cmd_track(args: argparse.Namespace) -> int:
         render_digest_text,
         write_digest,
     )
-    from flatview.errors import ConfigError, EmailError
+    from flatview.errors import ConfigError, EmailError, NotifyError
     from flatview.track import run_track
 
     console = Console()
@@ -418,6 +423,11 @@ def cmd_track(args: argparse.Namespace) -> int:
                 f"{len(ev.delisted)} delisted, "
                 f"{len(ev.bargains)} bargains"
             )
+            if ev.trend and ev.trend.pm2_delta_pct is not None:
+                console.print(
+                    f"  [dim]trend: median €/m² {ev.trend.median_pm2_now:,.0f} "
+                    f"({ev.trend.pm2_delta_pct:+.1f}% vs {ev.trend.period_days} d ago)[/dim]"
+                )
     if args.dry_run:
         if all_events:
             console.print("[dim]Dry run: nothing was written.[/dim]")
@@ -450,6 +460,23 @@ def cmd_track(args: argparse.Namespace) -> int:
             except EmailError as e:
                 console.print(f"[red]{e}[/red]")
                 console.print(f"[yellow]Digest file remains at {digest_path}.[/yellow]")
+                code = code or 1
+
+        # Push is event-driven by design: a "no changes" push is just noise.
+        should_push = config.ntfy is not None and not args.no_push and has_events(all_events)
+        if should_push:
+            from flatview.notify import build_push_message, send_ntfy
+
+            assert config.ntfy is not None
+            try:
+                send_ntfy(
+                    config.ntfy,
+                    title=digest_subject(all_events),
+                    message=build_push_message(all_events),
+                )
+                console.print("[green]Push notification sent (ntfy).[/green]")
+            except NotifyError as e:
+                console.print(f"[red]{e}[/red]")
                 code = code or 1
     return code
 

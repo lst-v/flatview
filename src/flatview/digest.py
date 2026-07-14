@@ -14,6 +14,7 @@ from flatview.analytics import price_per_m2
 from flatview.html_report import _fmt
 from flatview.models import Listing
 from flatview.track import WatchEvents
+from flatview.trends import TrendSummary
 
 _TABLE = "border-collapse:collapse;margin:8px 0 16px 0;font-size:14px"
 _TH = "padding:4px 10px;border:1px solid #ddd;background:#f6f6f6;text-align:left"
@@ -117,6 +118,66 @@ def _stats_block(stats: dict) -> str:
     )
 
 
+def _trend_block(trend: TrendSummary) -> str:
+    """Market movement: deltas vs the previous period, DOM, price-cut pressure."""
+    parts = ["<p style='margin:12px 0 0 0'><strong>📈 Market trend</strong></p>"]
+
+    if trend.has_comparison:
+        head = "".join(
+            f"<th style='{_TH}'>{h}</th>"
+            for h in ("Metric", "Now", f"{trend.period_days} d ago", "Δ")
+        )
+        rows = []
+        if trend.pm2_delta_pct is not None:
+            rows.append(
+                f"<tr><td style='{_TD}'>Median €/m²</td>"
+                f"<td style='{_TD}'>{_fmt(trend.median_pm2_now)}</td>"
+                f"<td style='{_TD}'>{_fmt(trend.median_pm2_prev)}</td>"
+                f"<td style='{_TD}'><strong>{trend.pm2_delta_pct:+.1f}%</strong></td></tr>"
+            )
+        if trend.active_delta is not None:
+            rows.append(
+                f"<tr><td style='{_TD}'>Active listings</td>"
+                f"<td style='{_TD}'>{trend.active_now}</td>"
+                f"<td style='{_TD}'>{trend.active_prev}</td>"
+                f"<td style='{_TD}'><strong>{trend.active_delta:+d}</strong></td></tr>"
+            )
+        parts.append(
+            f"<table style='{_TABLE}'><thead><tr>{head}</tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table>"
+        )
+
+    notes = [
+        f"Last {trend.period_days} days: {trend.n_new} new · "
+        f"{trend.n_delisted} delisted · {trend.n_drops} price cuts"
+    ]
+    if trend.days_on_market:
+        notes.append(
+            f"Median days on market (delisted, last {trend.window_days} d): "
+            f"{trend.days_on_market.median:.0f} (n={trend.days_on_market.n})"
+        )
+    if trend.cuts and trend.cuts.n_cut:
+        cut = trend.cuts
+        med = f", median cut {cut.median_cut_pct:+.1f}%" if cut.median_cut_pct else ""
+        notes.append(
+            f"Price cuts (last {trend.window_days} d): {cut.n_cut} of {cut.n_active} "
+            f"active listings ({cut.cut_share_pct:.0f}%){med}"
+        )
+    parts.extend(f"<p style='color:#666;font-size:13px;margin:4px 0'>{n}</p>" for n in notes)
+
+    if len(trend.series) >= 3:
+        pts = trend.series[-8:]
+        head = "".join(f"<th style='{_TH}'>{d[5:]}</th>" for d, _ in pts)
+        row = "".join(f"<td style='{_TD}'>{_fmt(m)}</td>" for _, m in pts)
+        parts.append(
+            f"<p style='color:#666;font-size:13px;margin:8px 0 0 0'>"
+            f"Median €/m² over the last {trend.window_days} days:</p>"
+            f"<table style='{_TABLE}'><thead><tr>{head}</tr></thead>"
+            f"<tbody><tr>{row}</tr></tbody></table>"
+        )
+    return "\n".join(parts)
+
+
 def _watch_section(ev: WatchEvents) -> str:
     p = ev.watch.params
     meta = " · ".join(filter(None, [p.query, p.location, p.source]))
@@ -199,6 +260,9 @@ def _watch_section(ev: WatchEvents) -> str:
         parts.append(f"<p><strong>📊 Lowest €/m² right now ({len(ev.cheapest)})</strong></p>")
         parts.append(_cheapest_table(ev.cheapest, ev.stats))
 
+    if ev.trend and not ev.is_baseline:
+        parts.append(_trend_block(ev.trend))
+
     parts.append(_stats_block(ev.stats))
     return "\n".join(parts)
 
@@ -228,6 +292,11 @@ def render_digest_text(events: list[WatchEvents]) -> str:
             f"{len(ev.price_drops)} price drops, {len(ev.delisted)} delisted, "
             f"{len(ev.bargains)} bargains, {len(ev.overpriced)} overpriced"
         )
+        if ev.trend and ev.trend.pm2_delta_pct is not None:
+            lines.append(
+                f"  TREND: median €/m² {_fmt(ev.trend.median_pm2_now)} "
+                f"({ev.trend.pm2_delta_pct:+.1f}% vs {ev.trend.period_days} d ago)"
+            )
         for l in ev.new:
             lines.append(f"  NEW: {l.title} — {_fmt(l.price)} {l.currency} — {l.url}")
         for c in ev.price_drops:

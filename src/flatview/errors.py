@@ -17,3 +17,7 @@ class ConfigError(FlatviewError):
 
 class EmailError(FlatviewError):
     """Sending the digest email failed."""
+
+
+class NotifyError(FlatviewError):
+    """Sending a push notification failed."""

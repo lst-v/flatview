@@ -16,14 +16,16 @@ Market-tracking CLI for bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk cl
 - `src/flatview/storage.py` — SQLite at `~/.local/share/flatview/flatview.db` (XDG). Tables: `listings`, `price_history`, `watches`, `watch_runs`, `watch_listings`. Upserts, price history, run recording, delist queries
 - `src/flatview/dedup.py` — cross-source entity resolution: `is_duplicate` (area/price/city match with title guard; hard price/area contradictions veto), `find_duplicate_groups` (union-find), `select_canonical` (richest listing wins), `dedupe`. Replaces the old title-ratio-only heuristic
 - `src/flatview/watches.py` — `Watch` dataclass wrapping `SearchParams`; add/get/list/remove
-- `src/flatview/track.py` — tracking pipeline: `run_watch` (events: new/price drops/increases/delisted/bargains/overpriced), `run_track` (exit codes 0/1/2), `WatchEvents`/`PriceChange`/`DelistedInfo`
-- `src/flatview/config.py` — `~/.config/flatview/config.toml` (tomllib): `SmtpConfig`, `TrackingConfig`; `FLATVIEW_SMTP_PASSWORD` env override
-- `src/flatview/digest.py` — email-safe HTML digest (inline CSS, no JS) + text fallback; per-watch sections incl. "Lowest €/m² right now" (top 5 with Δ vs median — low-end visibility even when nothing crosses the IQR fence); `write_digest` → timestamped + `latest.html` in `~/.local/share/flatview/digests/`
+- `src/flatview/track.py` — tracking pipeline: `run_watch` (events: new/price drops/increases/delisted/bargains/overpriced + `trend`), `run_track` (exit codes 0/1/2), `WatchEvents`/`PriceChange`/`DelistedInfo`
+- `src/flatview/trends.py` — market trends from stored history: `snapshot` (as-of-date median €/m² + active count; price = latest observation ≤ date, active = membership window covers date, cross-posts collapsed by rounded price+area key), `compute_trend` → `TrendSummary` (deltas vs 7 d ago, activity from `watch_runs`, `days_on_market_stats`, `price_cut_stats`, `rolling_median_pm2` 30-d series). Computed in `run_watch` unless dry-run; failures logged, never abort the run
+- `src/flatview/config.py` — `~/.config/flatview/config.toml` (tomllib): `SmtpConfig`, `NtfyConfig`, `TrackingConfig`; `FLATVIEW_SMTP_PASSWORD` / `FLATVIEW_NTFY_TOKEN` env overrides
+- `src/flatview/digest.py` — email-safe HTML digest (inline CSS, no JS) + text fallback; per-watch sections incl. "Lowest €/m² right now" (top 5 with Δ vs median — low-end visibility even when nothing crosses the IQR fence) and "Market trend" (deltas vs 7 d ago, DOM, price cuts, 30-d series; hidden on baseline runs); `write_digest` → timestamped + `latest.html` in `~/.local/share/flatview/digests/`
 - `src/flatview/emailer.py` — SMTP send via stdlib `EmailMessage`; raises `EmailError`
+- `src/flatview/notify.py` — ntfy push: `send_ntfy` (JSON publish to server root — headers are latin-1 only, JSON keeps diacritics), `build_push_message` (phone-sized, capped lines); raises `NotifyError`
 - `src/flatview/display.py` — console tables (rich), grouped multi-source display, duplicate highlighting, ↓/↑ outlier markers
 - `src/flatview/export.py` — CSV, XLSX (openpyxl), PDF (fpdf2) with summary stats
 - `src/flatview/html_report.py` — browser HTML report (Plotly CDN): stats, charts, outlier sections, comparables, CMA mode
-- `src/flatview/errors.py` — `FlatviewError` / `ScrapeError` / `ConfigError` / `EmailError`
+- `src/flatview/errors.py` — `FlatviewError` / `ScrapeError` / `ConfigError` / `EmailError` / `NotifyError`
 - `src/flatview/log.py` — `setup_logging`: RichHandler console + rotating file log at `~/.local/state/flatview/flatview.log`
 
 ## CLI
@@ -48,7 +50,7 @@ Search flags (shared by `search` and `watch add`):
 | `--pages` | `1` with query, all without | Pages to scrape (0 = all; watches store 0 by default) |
 
 `search`-only: `--export csv,xlsx,pdf,html`, `--output-dir` (default `output`), `--report full|cma`, `--cma-area FLOAT`, `--remove-outliers`, `--no-store`.
-`track`-only: `--watch NAME`, `--dry-run` (no writes/email), `--no-email`, `--config PATH`.
+`track`-only: `--watch NAME`, `--dry-run` (no writes/email/push), `--no-email`, `--no-push`, `--config PATH`.
 
 ## Tracking pipeline (`flatview track`)
 
@@ -58,7 +60,8 @@ Search flags (shared by `search` and `watch add`):
 - **Price drop/increase** = current price vs `listings.last_price`, read before upsert
 - **Delisted** = `last_matched` older than `delist_after_days` (default 2) — checked only after a successful non-empty scrape; empty/error runs never delist (protects against network failure and HTML drift)
 - Exit codes: 0 all ok, 1 ≥1 watch failed, 2 usage/config error. `SearchResult.error` distinguishes "unreachable" from "genuinely empty"
-- Digest always written unless `--dry-run`; email only when SMTP configured ∧ not `--no-email` ∧ (events or `email_only_on_events=false`)
+- Digest always written unless `--dry-run`; email only when SMTP configured ∧ not `--no-email` ∧ (events or `email_only_on_events=false`); ntfy push only when `[ntfy]` configured ∧ not `--no-push` ∧ events (quiet runs never push)
+- Trend per watch (`WatchEvents.trend`): median €/m² and active count vs 7 d ago, 30-d rolling median series, median days-on-market of recent delistings, price-cut share/size; current run's events folded into the activity window before the run row is recorded
 - Scheduling: launchd plist or crontab (see README "Scheduling on macOS")
 
 ## How bazos works
@@ -102,6 +105,8 @@ Search flags (shared by `search` and `watch add`):
 - **m² extraction**: bazos detail pages fetched for floor area; nehnutelnosti provides it in JSON-LD; topreality provides it in HTML
 - **Duplicate detection**: entity resolution in `dedup.py` (area+price+city with title guard, title-only fallback ≥ 0.7) marks cross-source duplicates with `*`; combined-summary stats, track analytics (outliers/cheapest/stats), and NEW alerts all count each flat once — a cross-post to a second portal does not alert
 - **Two-sided outliers**: 1.5×IQR fence on €/m²; below = bargain (green ↓), above = overpriced (red ↑); surfaced in console, exports, HTML report, digest
+- **Market trends**: per-watch deltas vs 7 days ago (median €/m², active listings), 30-day median series, days-on-market, price-cut frequency — reconstructed from `price_history`/`watch_listings`/`watch_runs`, in the digest and track console
+- **Push notifications**: ntfy channel (`[ntfy]` in config.toml) — event-driven push to phone alongside the email digest
 - **Postcode filter**: `--zip` filters bazos listings by exact postcode (not available for nehnutelnosti/topreality)
 - **Export**: `--export csv,xlsx,pdf,html` generates files in `--output-dir`
 
