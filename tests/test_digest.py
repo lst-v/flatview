@@ -90,6 +90,17 @@ def test_render_digest_sections(events):
     assert "<script" not in html.lower()  # email-safe
 
 
+def test_render_digest_unique_count(make_listing):
+    ev = WatchEvents(watch=Watch(name="w"), n_listings=10, n_unique=7)
+    html = render_digest([ev], generated_at=GENERATED)
+    assert "10 listings (7 unique" in html
+
+    same = WatchEvents(watch=Watch(name="w2"), n_listings=5, n_unique=5)
+    html = render_digest([same], generated_at=GENERATED)
+    assert "5 listings" in html
+    assert "unique" not in html.split("w2")[1].split("</p>")[0]
+
+
 def test_render_digest_cheapest_section(make_listing):
     cheap = make_listing(id=5, title="Najlacnejší", price=80_000, area=50)  # 1600 /m²
     ev = WatchEvents(watch=Watch(name="w"), n_listings=8)

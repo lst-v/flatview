@@ -14,6 +14,7 @@ Market-tracking CLI for bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk cl
 - `src/flatview/models.py` — Dataclasses: `Listing` (segment, is_outlier, outlier_side, first_seen, previous_price), `SearchResult` (error field for fetch failures)
 - `src/flatview/analytics.py` — `compute_percentiles` (linear interpolation), `compute_stats`, `flag_outliers_iqr(k=1.5)` two-sided (bargain/overpriced), `iqr_fence`, `classify_segment`/`annotate_segments` (new/resale), `price_per_m2` (single source of truth), `cheapest_by_pm2`. Placeholder prices (≤ 1 €, "Rezervované" token ads) are excluded from all stats and outlier detection
 - `src/flatview/storage.py` — SQLite at `~/.local/share/flatview/flatview.db` (XDG). Tables: `listings`, `price_history`, `watches`, `watch_runs`, `watch_listings`. Upserts, price history, run recording, delist queries
+- `src/flatview/dedup.py` — cross-source entity resolution: `is_duplicate` (area/price/city match with title guard; hard price/area contradictions veto), `find_duplicate_groups` (union-find), `select_canonical` (richest listing wins), `dedupe`. Replaces the old title-ratio-only heuristic
 - `src/flatview/watches.py` — `Watch` dataclass wrapping `SearchParams`; add/get/list/remove
 - `src/flatview/track.py` — tracking pipeline: `run_watch` (events: new/price drops/increases/delisted/bargains/overpriced), `run_track` (exit codes 0/1/2), `WatchEvents`/`PriceChange`/`DelistedInfo`
 - `src/flatview/config.py` — `~/.config/flatview/config.toml` (tomllib): `SmtpConfig`, `TrackingConfig`; `FLATVIEW_SMTP_PASSWORD` env override
@@ -99,7 +100,7 @@ Search flags (shared by `search` and `watch add`):
 
 - **Multi-source**: `--source all` scrapes all portals and shows grouped results with combined summary
 - **m² extraction**: bazos detail pages fetched for floor area; nehnutelnosti provides it in JSON-LD; topreality provides it in HTML
-- **Duplicate detection**: fuzzy title matching (difflib, ratio >= 0.7) highlights cross-source duplicates with `*`
+- **Duplicate detection**: entity resolution in `dedup.py` (area+price+city with title guard, title-only fallback ≥ 0.7) marks cross-source duplicates with `*`; combined-summary stats, track analytics (outliers/cheapest/stats), and NEW alerts all count each flat once — a cross-post to a second portal does not alert
 - **Two-sided outliers**: 1.5×IQR fence on €/m²; below = bargain (green ↓), above = overpriced (red ↑); surfaced in console, exports, HTML report, digest
 - **Postcode filter**: `--zip` filters bazos listings by exact postcode (not available for nehnutelnosti/topreality)
 - **Export**: `--export csv,xlsx,pdf,html` generates files in `--output-dir`

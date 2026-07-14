@@ -121,7 +121,10 @@ def _watch_section(ev: WatchEvents) -> str:
     p = ev.watch.params
     meta = " · ".join(filter(None, [p.query, p.location, p.source]))
     parts = [f"<h2 style='margin:24px 0 4px 0'>{ev.watch.name}</h2>"]
-    parts.append(f"<p style='color:#666;margin:0 0 8px 0'>{meta} — {ev.n_listings} listings</p>")
+    counts = f"{ev.n_listings} listings"
+    if ev.n_unique and ev.n_unique != ev.n_listings:
+        counts += f" ({ev.n_unique} unique — cross-posts counted once in stats)"
+    parts.append(f"<p style='color:#666;margin:0 0 8px 0'>{meta} — {counts}</p>")
 
     if ev.error:
         parts.append(f"<p style='color:#c62828'><strong>Run failed:</strong> {ev.error}</p>")
