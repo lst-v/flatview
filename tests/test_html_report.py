@@ -25,6 +25,45 @@ def test_render_report_writes_file_with_charts(tmp_path, make_listing):
     assert "flat<span>view</span>" in text  # wordmark header
     assert "plotly" in text.lower()
     assert "Median (P50)" in text
+    assert ">Count<" not in text  # sample sizes are a caption, not a stat row
+    assert "8 listings · 8 priced · 8 with €/m²" in text
+
+
+def test_stats_caption_counts_partial_data(tmp_path, make_listing):
+    listings = [
+        make_listing(id=i, title=f"byt {i}", price=100_000 + i * 1_000, area=55) for i in range(5)
+    ]
+    listings.append(make_listing(id=90, title="bez ceny", price=None))
+    listings.append(make_listing(id=91, title="bez plochy", price=120_000, area=None))
+    annotate_segments(listings)
+
+    out = tmp_path / "report.html"
+    render_report(listings, query="", location="", sources=["bazos.sk"], out_path=out)
+    assert "7 listings · 6 priced · 5 with €/m²" in out.read_text(encoding="utf-8")
+
+
+def test_single_segment_breakdown_hidden(tmp_path, make_listing):
+    # All resale: a "Resale" table would just repeat "Overall".
+    listings = [
+        make_listing(id=i, title=f"Po rekonštrukcii byt {i}", price=100_000, area=55)
+        for i in range(5)
+    ]
+    annotate_segments(listings)
+    out = tmp_path / "seg1.html"
+    render_report(listings, query="", location="", sources=["bazos.sk"], out_path=out)
+    text = out.read_text(encoding="utf-8")
+    assert "Overall" in text
+    assert "Resale" not in text
+
+    # Two segments: the breakdown is a real comparison — show it.
+    listings += [
+        make_listing(id=10 + i, title=f"Novostavba {i}", price=160_000, area=55) for i in range(5)
+    ]
+    annotate_segments(listings)
+    out2 = tmp_path / "seg2.html"
+    render_report(listings, query="", location="", sources=["bazos.sk"], out_path=out2)
+    text2 = out2.read_text(encoding="utf-8")
+    assert "Resale" in text2 and "New build" in text2
 
 
 def test_render_report_two_sided_outliers(tmp_path, make_listing):

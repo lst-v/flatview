@@ -150,8 +150,12 @@ def _stat_table(label: str, stats: dict, currency: str) -> str:
         return ""
     price = stats.get("price", {})
     pm2 = stats.get("pm2", {})
+    # Sample sizes read as a caption, not as a row pretending to be a price stat.
+    caption = (
+        f"{stats.get('n_total', 0)} listings · {price.get('n', 0)} priced · "
+        f"{pm2.get('n', 0)} with €/m²"
+    )
     rows = [
-        ("Count", price.get("n", 0), pm2.get("n", 0)),
         ("Min", price.get("min"), pm2.get("min")),
         ("P10", price.get("p10"), pm2.get("p10")),
         ("P25", price.get("p25"), pm2.get("p25")),
@@ -166,6 +170,7 @@ def _stat_table(label: str, stats: dict, currency: str) -> str:
     )
     return (
         f"<h3>{label}</h3>"
+        f"<p class='small'>{caption}</p>"
         f"<table><thead><tr><th>Metric</th>"
         f"<th>Price ({currency})</th><th>{currency}/m²</th></tr></thead>"
         f"<tbody>{body}</tbody></table>"
@@ -180,11 +185,14 @@ def _build_stats_section(listings: list[Listing], exclude_outliers: bool) -> str
         parts.append("<p class='small'>Outliers excluded from stats and charts.</p>")
     parts.append(_stat_table("Overall", overall, currency))
 
+    # A lone segment is just the whole sample again — only break down when
+    # there's an actual comparison to make (mirrors the console behavior).
     per_seg = stats_by_segment(listings, exclude_outliers=exclude_outliers)
     label_map = {"new": "New build", "resale": "Resale", "unknown": "Unclassified"}
-    for seg in ("new", "resale", "unknown"):
-        if seg in per_seg:
-            parts.append(_stat_table(label_map[seg], per_seg[seg], currency))
+    if len(per_seg) >= 2:
+        for seg in ("new", "resale", "unknown"):
+            if seg in per_seg:
+                parts.append(_stat_table(label_map[seg], per_seg[seg], currency))
     return "\n".join(parts)
 
 
