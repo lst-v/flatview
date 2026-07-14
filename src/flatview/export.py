@@ -6,6 +6,7 @@ import unicodedata
 from pathlib import Path
 
 from flatview.analytics import compute_stats, price_per_m2
+from flatview.dedup import dedupe, find_duplicate_groups
 from flatview.models import Listing
 
 
@@ -21,9 +22,19 @@ def _location_str(listing: Listing) -> str:
     return loc
 
 
+def _duplicate_ids(listings: list[Listing]) -> set[int]:
+    """object ids of listings that are cross-posts of another listing."""
+    return {id(l) for group in find_duplicate_groups(listings) for l in group}
+
+
 def _summary_rows(listings: list[Listing]) -> list[list]:
-    """Generate summary stat rows for export with full percentile breakdown."""
-    stats = compute_stats(listings)
+    """Generate summary stat rows for export with full percentile breakdown.
+
+    Stats are computed on the deduped pool — a flat cross-posted on several
+    portals counts once, while the listing rows above stay a full dump.
+    """
+    unique = dedupe(listings)
+    stats = compute_stats(unique)
     price = stats.get("price") or {}
     pm2 = stats.get("pm2") or {}
 
@@ -45,10 +56,18 @@ def _summary_rows(listings: list[Listing]) -> list[list]:
         if price.get(key) is None and pm2.get(key) is None:
             continue
         rows.append([label, "", "", "", _r(price.get(key)), "", _r(pm2.get(key))])
-    n_outliers = sum(1 for l in listings if l.is_outlier)
+    if len(unique) != len(listings):
+        rows.append([])
+        rows.append(
+            [
+                f"Cross-posts counted once in summary: "
+                f"{len(listings)} rows, {len(unique)} unique flats"
+            ]
+        )
+    n_outliers = sum(1 for l in unique if l.is_outlier)
     if n_outliers:
-        n_bargain = sum(1 for l in listings if l.outlier_side == "bargain")
-        n_over = sum(1 for l in listings if l.outlier_side == "overpriced")
+        n_bargain = sum(1 for l in unique if l.outlier_side == "bargain")
+        n_over = sum(1 for l in unique if l.outlier_side == "overpriced")
         rows.append([])
         rows.append(
             [
@@ -73,12 +92,14 @@ HEADERS = [
 ]
 
 
-def _listing_row(i: int, l: Listing) -> list:
+def _listing_row(i: int, l: Listing, *, is_duplicate: bool = False) -> list:
     pm2 = price_per_m2(l)
     segment: str = l.segment if l.segment != "unknown" else ""
     if l.is_outlier:
         marker = f"*{l.outlier_side}" if l.outlier_side else "*"
         segment = f"{segment} {marker}" if segment else marker
+    if is_duplicate:
+        segment = f"{segment} *crosspost".strip()
     return [
         i,
         l.source,
@@ -96,11 +117,12 @@ def _listing_row(i: int, l: Listing) -> list:
 def export_csv(listings: list[Listing], path: str | Path) -> None:
     """Export listings to CSV with summary stats."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    dup_ids = _duplicate_ids(listings)
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(HEADERS)
         for i, l in enumerate(listings, 1):
-            w.writerow(_listing_row(i, l))
+            w.writerow(_listing_row(i, l, is_duplicate=id(l) in dup_ids))
         for row in _summary_rows(listings):
             w.writerow(row)
 
@@ -120,8 +142,9 @@ def export_xlsx(listings: list[Listing], path: str | Path) -> None:
     for cell in ws[1]:
         cell.font = Font(bold=True)
 
+    dup_ids = _duplicate_ids(listings)
     for i, l in enumerate(listings, 1):
-        ws.append(_listing_row(i, l))
+        ws.append(_listing_row(i, l, is_duplicate=id(l) in dup_ids))
 
     # Summary
     row_num = len(listings) + 3
@@ -203,20 +226,18 @@ def export_pdf(listings: list[Listing], path: str | Path, title: str = "Listings
     pdf.cell(0, 6, "Summary", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_font("Helvetica", "", 8)
 
-    stats = compute_stats(listings)
+    unique = dedupe(listings)
+    stats = compute_stats(unique)
     price = stats.get("price") or {}
     pm2_stats = stats.get("pm2") or {}
 
     def fmt(v):
         return f"{v:,.0f}" if isinstance(v, (int, float)) else "-"
 
-    pdf.cell(
-        0,
-        5,
-        f"Listings with price: {price.get('n', 0)}  |  Listings with area: {pm2_stats.get('n', 0)}",
-        new_x=XPos.LMARGIN,
-        new_y=YPos.NEXT,
-    )
+    counts = f"Listings with price: {price.get('n', 0)}  |  With area: {pm2_stats.get('n', 0)}"
+    if len(unique) != len(listings):
+        counts += f"  |  Cross-posts counted once ({len(listings)} rows, {len(unique)} unique)"
+    pdf.cell(0, 5, counts, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     if price.get("n"):
         pdf.cell(
             0,
@@ -237,10 +258,10 @@ def export_pdf(listings: list[Listing], path: str | Path, title: str = "Listings
             new_x=XPos.LMARGIN,
             new_y=YPos.NEXT,
         )
-    n_outliers = sum(1 for l in listings if l.is_outlier)
+    n_outliers = sum(1 for l in unique if l.is_outlier)
     if n_outliers:
-        n_bargain = sum(1 for l in listings if l.outlier_side == "bargain")
-        n_over = sum(1 for l in listings if l.outlier_side == "overpriced")
+        n_bargain = sum(1 for l in unique if l.outlier_side == "bargain")
+        n_over = sum(1 for l in unique if l.outlier_side == "overpriced")
         pdf.cell(
             0,
             5,

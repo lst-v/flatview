@@ -18,10 +18,12 @@ from jinja2 import Template
 from flatview.analytics import (
     compute_percentiles,
     compute_stats,
+    flag_outliers_iqr,
     iqr_fence,
     price_per_m2,
     stats_by_segment,
 )
+from flatview.dedup import dedupe
 from flatview.models import Listing
 from flatview.storage import median_pm2_over_time, query_recent_count
 
@@ -92,7 +94,9 @@ _TEMPLATE = Template(
   <div class="meta">
     {% if query %}<strong>{{ query }}</strong> · {% endif %}
     {% if location %}{{ location }} · {% endif %}
-    {{ sources|join(", ") }} · {{ n_total }} listings
+    {{ sources|join(", ") }} ·
+    {% if n_unique != n_total %}{{ n_total }} listings ({{ n_unique }} unique —
+    cross-posts counted once){% else %}{{ n_total }} listings{% endif %}
     {% if currency %} · prices in {{ currency }}{% endif %}
   </div>
 </header>
@@ -442,22 +446,29 @@ def render_report(
     exclude_outliers: bool = False,
     iqr_k: float = 1.5,
 ) -> None:
-    df = _listings_to_df(listings)
-    overall = compute_stats(listings, exclude_outliers=exclude_outliers)
+    # The report is an analysis document: a flat cross-posted on several
+    # portals must count once in stats, charts, outlier fences, and CMA
+    # comps. Flags are recomputed on the deduped pool so the fence and the
+    # flagged rows derive from the same sample.
+    unique = dedupe(listings)
+    flag_outliers_iqr(unique, k=iqr_k)
+
+    df = _listings_to_df(unique)
+    overall = compute_stats(unique, exclude_outliers=exclude_outliers)
 
     charts = _build_charts(df, exclude_outliers)
     hist_chart = _build_history_chart(history_conn)
     if hist_chart:
         charts.append(hist_chart)
 
-    stats_html = _build_stats_section(listings, exclude_outliers)
-    outlier_html = _build_outlier_section(listings, iqr_k=iqr_k)
-    comparables_html = _build_comparables(listings)
+    stats_html = _build_stats_section(unique, exclude_outliers)
+    outlier_html = _build_outlier_section(unique, iqr_k=iqr_k)
+    comparables_html = _build_comparables(unique)
 
     cma_html = ""
     if mode == "cma" and cma_target_area is not None:
         cma_html = _build_cma_view(
-            listings,
+            unique,
             cma_target_area,
             history_conn,
             area_band=cma_area_band,
@@ -470,6 +481,7 @@ def render_report(
         location=location,
         sources=sources,
         n_total=len(listings),
+        n_unique=len(unique),
         currency=overall.get("currency", ""),
         stats_html=stats_html,
         charts=charts,

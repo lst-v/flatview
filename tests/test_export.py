@@ -96,6 +96,36 @@ def test_export_csv_outlier_side_markers(tmp_path, make_listing):
     assert "(1 bargain, 1 overpriced)" in content
 
 
+def test_export_csv_dedupes_summary_and_marks_rows(tmp_path, make_listing):
+    flat = dict(title="MASARYKOVÁ - Priestranný 2 izbový byt", price=108_990.0, area=59.0)
+    listings = [
+        make_listing(id=1, source="bazos", **flat),
+        make_listing(id=None, source="nehnutelnosti", **flat),
+        make_listing(id=4, title="iný byt", price=90_000.0, area=50.0),
+    ]
+    path = tmp_path / "dedup.csv"
+    export_csv(listings, str(path))
+    content = path.read_text()
+
+    assert content.count("*crosspost") == 2  # both cross-post rows marked
+    assert "3 rows, 2 unique flats" in content
+    # Summary Count row reflects the unique pool.
+    count_row = next(line for line in content.splitlines() if line.startswith("Count"))
+    assert ",2," in count_row
+
+
+def test_export_pdf_dedupes_summary(tmp_path, make_listing):
+    flat = dict(title="Cross post", price=108_990.0, area=59.0)
+    listings = [
+        make_listing(id=1, source="bazos", **flat),
+        make_listing(id=None, source="nehnutelnosti", **flat),
+        make_listing(id=4, title="iny byt", price=90_000.0, area=50.0),
+    ]
+    path = tmp_path / "dedup.pdf"
+    export_pdf(listings, str(path))
+    assert path.exists() and path.stat().st_size > 0
+
+
 # --- XLSX export tests ---
 
 

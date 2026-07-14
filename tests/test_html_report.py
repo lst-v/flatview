@@ -159,6 +159,53 @@ def test_render_report_cma_segment_fallback(tmp_path, make_listing):
     assert "Recommended range" in text
 
 
+def test_report_stats_dedupe_cross_posts(tmp_path, make_listing):
+    flat = dict(title="MASARYKOVÁ - Priestranný 2 izbový byt", price=108_990, area=59.0)
+    listings = [
+        make_listing(id=1, source="bazos", **flat),
+        make_listing(id=None, source="nehnutelnosti", **flat),
+        make_listing(id=None, source="topreality", **flat),
+        make_listing(id=4, title="iný byt A", price=90_000, area=50),
+        make_listing(id=5, title="iný byt B", price=100_000, area=52),
+    ]
+    annotate_segments(listings)
+    out = tmp_path / "dedup.html"
+    render_report(
+        listings,
+        query="byt",
+        location="MI",
+        sources=["bazos.sk", "nehnutelnosti.sk", "topreality.sk"],
+        out_path=out,
+    )
+    text = out.read_text(encoding="utf-8")
+    assert "5 listings (3 unique" in text  # header shows both counts
+    assert "3 listings · 3 priced · 3 with €/m²" in text  # stats on the unique pool
+
+
+def test_report_cma_comps_dedupe_cross_posts(tmp_path, make_listing):
+    flat = dict(title="MASARYKOVÁ - Priestranný 2 izbový byt", price=108_990, area=55.0)
+    listings = [
+        make_listing(id=1, source="bazos", **flat),
+        make_listing(id=None, source="nehnutelnosti", **flat),
+        make_listing(id=4, title="iný byt A", price=90_000, area=50),
+        make_listing(id=5, title="iný byt B", price=100_000, area=52),
+        make_listing(id=6, title="iný byt C", price=110_000, area=57),
+    ]
+    annotate_segments(listings)
+    out = tmp_path / "dedup_cma.html"
+    render_report(
+        listings,
+        query="byt",
+        location="MI",
+        sources=["bazos.sk", "nehnutelnosti.sk"],
+        out_path=out,
+        mode="cma",
+        cma_target_area=55,
+    )
+    comps = out.read_text(encoding="utf-8").split("Top comparables")[1].split("</table>")[0]
+    assert comps.count("MASARYKOVÁ") == 1  # the cross-posted flat is one comp, not two
+
+
 def test_render_report_cma_custom_band(tmp_path, make_listing):
     listings = [
         make_listing(id=i, title=f"3i byt {i}", price=80_000 + i * 4_000, area=50 + i)

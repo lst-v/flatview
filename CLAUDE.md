@@ -23,8 +23,8 @@ Market-tracking CLI for bazos.sk/bazos.cz, nehnutelnosti.sk and topreality.sk cl
 - `src/flatview/emailer.py` — SMTP send via stdlib `EmailMessage`; raises `EmailError`
 - `src/flatview/notify.py` — ntfy push: `send_ntfy` (JSON publish to server root — headers are latin-1 only, JSON keeps diacritics), `build_push_message` (phone-sized, capped lines); raises `NotifyError`. `ping_healthcheck` (dead-man's switch, never raises)
 - `src/flatview/display.py` — console tables (rich), grouped multi-source display, duplicate highlighting, ↓/↑ outlier markers
-- `src/flatview/export.py` — CSV, XLSX (openpyxl), PDF (fpdf2) with summary stats
-- `src/flatview/html_report.py` — browser HTML report (Plotly CDN), card-based minimal styling: stats, charts, outlier sections, comparables; CMA mode leads with a hero recommendation range + metric chips, optional segment-restricted comps (`cma_segment`, ≥4 or falls back), asking-price disclaimer
+- `src/flatview/export.py` — CSV, XLSX (openpyxl), PDF (fpdf2). Listing rows are a full dump with `*crosspost` markers (CSV/XLSX); summary stats count each flat once with an explanatory note
+- `src/flatview/html_report.py` — browser HTML report (Plotly CDN), card-based minimal styling: stats, charts, outlier sections, comparables; CMA mode leads with a hero recommendation range + metric chips, optional segment-restricted comps (`cma_segment`, ≥4 or falls back), asking-price disclaimer. Stats/charts/outliers/CMA run on the deduped pool (outliers re-flagged there); header shows raw vs unique counts
 - `src/flatview/errors.py` — `FlatviewError` / `ScrapeError` / `ConfigError` / `EmailError` / `NotifyError`
 - `src/flatview/log.py` — `setup_logging`: RichHandler console + rotating file log at `~/.local/state/flatview/flatview.log`
 
@@ -104,7 +104,7 @@ Search flags (shared by `search` and `watch add`):
 
 - **Multi-source**: `--source all` scrapes all portals and shows grouped results with combined summary
 - **m² extraction**: bazos detail pages fetched for floor area; nehnutelnosti provides it in JSON-LD; topreality provides it in HTML
-- **Duplicate detection**: entity resolution in `dedup.py` (area+price+city with title guard, title-only fallback ≥ 0.7) marks cross-source duplicates with `*`; combined-summary stats, track analytics (outliers/cheapest/stats), and NEW alerts all count each flat once — a cross-post to a second portal does not alert
+- **Duplicate detection**: entity resolution in `dedup.py` (area+price+city with title guard, title-only fallback ≥ 0.7) marks cross-source duplicates with `*`; combined-summary stats, track analytics (outliers/cheapest/stats), NEW alerts, HTML report (stats/charts/CMA), and export summaries all count each flat once — a cross-post to a second portal does not alert
 - **Two-sided outliers**: k×IQR fence on €/m² (k = `analytics.iqr_k`, default 1.5); below = bargain (green ↓), above = overpriced (red ↑); surfaced in console, exports, HTML report, digest. CMA comparable band likewise configurable (`analytics.cma_area_band`)
 - **Market trends**: per-watch deltas vs 7 days ago (median €/m², active listings), 30-day median series, days-on-market, price-cut frequency — reconstructed from `price_history`/`watch_listings`/`watch_runs`, in the digest and track console
 - **Push notifications**: ntfy channel (`[ntfy]` in config.toml) — event-driven push to phone alongside the email digest
