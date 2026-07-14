@@ -7,6 +7,7 @@ you need a fully offline bundle (~3MB heavier).
 
 from __future__ import annotations
 
+import html
 import sqlite3
 from datetime import date
 from pathlib import Path
@@ -149,6 +150,18 @@ def _fmt(v) -> str:
     if isinstance(v, (int, float)) and not isinstance(v, bool):
         return f"{v:,.0f}"
     return str(v)
+
+
+def _esc(v) -> str:
+    """Escape scraped text for HTML — listing fields are attacker-controlled."""
+    return html.escape(str(v), quote=True) if v else ""
+
+
+def _link(url: str | None, title: str) -> str:
+    """Linked title, escaped; non-http(s) URLs (javascript: etc.) render as text."""
+    if url and url.startswith(("http://", "https://")):
+        return f"<a href='{_esc(url)}'>{_esc(title)}</a>"
+    return _esc(title)
 
 
 def _stat_table(label: str, stats: dict, currency: str) -> str:
@@ -314,7 +327,7 @@ def _build_outlier_section(listings: list[Listing], *, iqr_k: float = 1.5) -> st
 
     def _table(items: list[Listing], css: str) -> str:
         rows = "\n".join(
-            f"<tr class='{css}'><td><a href='{l.url}'>{l.title}</a></td>"
+            f"<tr class='{css}'><td>{_link(l.url, l.title)}</td>"
             f"<td>{l.source}</td>"
             f"<td>{_fmt(l.price)}</td><td>{_fmt(l.area)}</td>"
             f"<td>{_fmt(price_per_m2(l))}</td></tr>"
@@ -351,7 +364,7 @@ def _build_comparables(listings: list[Listing], n: int = 10) -> str:
     pool.sort(key=lambda l: abs((price_per_m2(l) or 0) - median))
     top = pool[:n]
     rows = "\n".join(
-        f"<tr><td><a href='{l.url}'>{l.title}</a></td><td>{l.source}</td>"
+        f"<tr><td>{_link(l.url, l.title)}</td><td>{l.source}</td>"
         f"<td><span class='segment-{l.segment}'>{l.segment}</span></td>"
         f"<td>{_fmt(l.price)}</td><td>{_fmt(l.area)}</td>"
         f"<td>{_fmt(price_per_m2(l))}</td></tr>"
@@ -432,7 +445,7 @@ def _build_cma_view(
         )
 
     rows = "\n".join(
-        f"<tr><td><a href='{l.url}'>{l.title}</a></td><td>{l.source}</td>"
+        f"<tr><td>{_link(l.url, l.title)}</td><td>{l.source}</td>"
         f"<td><span class='segment-{l.segment}'>{l.segment}</span></td>"
         f"<td>{_fmt(l.price)}</td><td>{_fmt(l.area)}</td>"
         f"<td>{_fmt(price_per_m2(l))}</td>"
@@ -500,9 +513,9 @@ def render_report(
         )
 
     html = _TEMPLATE.render(
-        title=query or "Listings",
-        query=query,
-        location=location,
+        title=_esc(query) or "Listings",
+        query=_esc(query),
+        location=_esc(location),
         sources=sources,
         n_total=len(listings),
         n_unique=len(unique),

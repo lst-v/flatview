@@ -166,6 +166,25 @@ def test_trend_block_hidden_on_baseline_and_without_comparison():
     assert "7 d ago" not in html
 
 
+def test_digest_escapes_scraped_fields(make_listing):
+    evil = make_listing(
+        id=1,
+        title="<script>alert(1)</script> byt",
+        city="<b>Mesto</b>",
+        url="javascript:alert(2)",
+    )
+    ev = WatchEvents(watch=Watch(name="w"), n_listings=1)
+    ev.new = [evil]
+    failed = WatchEvents(watch=Watch(name="down"), error="<script>boom</script>")
+
+    html = render_digest([ev, failed], generated_at=GENERATED)
+    assert "<script>alert(1)" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt; byt" in html
+    assert "href='javascript:" not in html
+    assert "<b>Mesto</b>" not in html
+    assert "<script>boom" not in html
+
+
 def test_render_digest_error_and_baseline(make_listing):
     failed = WatchEvents(watch=Watch(name="down"), error="connection refused")
     baseline = WatchEvents(watch=Watch(name="fresh"), is_baseline=True, n_listings=4)

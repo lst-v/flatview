@@ -111,6 +111,12 @@ Search flags (shared by `search` and `watch add`):
 - **Postcode filter**: `--zip` filters bazos listings by exact postcode (not available for nehnutelnosti/topreality)
 - **Export**: `--export csv,xlsx,pdf,html` generates files in `--output-dir`
 
+## Security invariants
+
+- Scraped listing fields (title, city, url, error strings from fetches) are attacker-controlled. Any HTML rendering must go through `html_report._esc` / `_link` (the latter also refuses non-http(s) URLs); plotly escapes its own embedded JSON. Never interpolate a scraped string into HTML raw
+- SQL is always parameterized (`?` placeholders); no string-built queries
+- Secrets never live in the repo: SMTP password via `FLATVIEW_SMTP_PASSWORD`, ntfy token via `FLATVIEW_NTFY_TOKEN` (config file values are supported but discouraged; `~/.config/flatview/config.toml` is outside the repo). `output/`, DB, digests, and logs are gitignored or outside the tree
+
 ## Development
 
 ```bash

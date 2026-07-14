@@ -214,6 +214,40 @@ def test_report_cma_comps_dedupe_cross_posts(tmp_path, make_listing):
     assert comps.count("MASARYKOVÁ") == 1  # the cross-posted flat is one comp, not two
 
 
+def test_scraped_fields_are_escaped(tmp_path, make_listing):
+    evil = make_listing(
+        id=1,
+        title="<script>alert(1)</script> byt",
+        url="https://example.com/x.php?a='><script>alert(2)</script>",
+        price=100_000,
+        area=50,
+    )
+    js_url = make_listing(id=2, title="Iný byt", url="javascript:alert(3)", price=90_000, area=50)
+    filler = [
+        make_listing(id=10 + i, title=f"byt {i}", price=95_000 + i * 1_000, area=50)
+        for i in range(3)
+    ]
+    listings = [evil, js_url, *filler]
+    annotate_segments(listings)
+
+    out = tmp_path / "esc.html"
+    render_report(
+        listings,
+        query="<script>q</script>",
+        location="MI",
+        sources=["bazos.sk"],
+        out_path=out,
+        mode="cma",
+        cma_target_area=50,
+    )
+    text = out.read_text(encoding="utf-8")
+    assert "<script>alert(1)</script>" not in text
+    assert "<script>alert(2)</script>" not in text
+    assert "&lt;script&gt;alert(1)&lt;/script&gt; byt" in text
+    assert "href='javascript:" not in text  # non-http schemes render as plain text
+    assert "<script>q</script>" not in text  # header meta escaped too
+
+
 def test_history_chart_scoped_to_query(tmp_path, make_listing):
     from datetime import date, timedelta
 

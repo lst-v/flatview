@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from flatview.analytics import price_per_m2
-from flatview.html_report import _fmt
+from flatview.html_report import _esc, _fmt, _link
 from flatview.models import Listing
 from flatview.track import WatchEvents
 from flatview.trends import TrendSummary
@@ -52,14 +52,14 @@ def _listing_table(listings: list[Listing]) -> str:
     )
     rows = []
     for l in listings:
-        title = f"<a href='{l.url}'>{l.title}</a>" if l.url else l.title
+        title = _link(l.url, l.title)
         seg = l.segment if l.segment != "unknown" else ""
         rows.append(
             f"<tr><td style='{_TD}'>{title}</td>"
             f"<td style='{_TD}'>{_fmt(l.price)}</td>"
             f"<td style='{_TD}'>{_fmt(l.area)}</td>"
             f"<td style='{_TD}'>{_fmt(price_per_m2(l))}</td>"
-            f"<td style='{_TD}'>{l.city}</td>"
+            f"<td style='{_TD}'>{_esc(l.city)}</td>"
             f"<td style='{_TD}'>{seg}</td></tr>"
         )
     return (
@@ -77,7 +77,7 @@ def _cheapest_table(listings: list[Listing], stats: dict) -> str:
     rows = []
     for l in listings:
         pm2 = price_per_m2(l)
-        title = f"<a href='{l.url}'>{l.title}</a>" if l.url else l.title
+        title = _link(l.url, l.title)
         vs = ""
         if pm2 is not None and median:
             pct = (pm2 / median - 1) * 100
@@ -89,7 +89,7 @@ def _cheapest_table(listings: list[Listing], stats: dict) -> str:
             f"<td style='{_TD}'>{_fmt(l.area)}</td>"
             f"<td style='{_TD}'>{_fmt(pm2)}</td>"
             f"<td style='{_TD}'>{vs}</td>"
-            f"<td style='{_TD}'>{l.city}</td></tr>"
+            f"<td style='{_TD}'>{_esc(l.city)}</td></tr>"
         )
     return (
         f"<table style='{_TABLE}'><thead><tr>{head}</tr></thead>"
@@ -188,7 +188,7 @@ def _watch_section(ev: WatchEvents) -> str:
     parts.append(f"<p style='color:#666;margin:0 0 8px 0'>{meta} — {counts}</p>")
 
     if ev.error:
-        parts.append(f"<p style='color:#c62828'><strong>Run failed:</strong> {ev.error}</p>")
+        parts.append(f"<p style='color:#c62828'><strong>Run failed:</strong> {_esc(ev.error)}</p>")
         return "\n".join(parts)
 
     if ev.is_baseline:
@@ -206,11 +206,11 @@ def _watch_section(ev: WatchEvents) -> str:
     if ev.price_drops:
         head = "".join(f"<th style='{_TH}'>{h}</th>" for h in ("Title", "Old", "New", "Δ%", "City"))
         rows = "".join(
-            f"<tr><td style='{_TD}'><a href='{c.listing.url}'>{c.listing.title}</a></td>"
+            f"<tr><td style='{_TD}'>{_link(c.listing.url, c.listing.title)}</td>"
             f"<td style='{_TD}'>{_fmt(c.old_price)}</td>"
             f"<td style='{_TD}'><strong>{_fmt(c.new_price)}</strong></td>"
             f"<td style='{_TD};color:#0a7f33'>{c.pct:+.1f}%</td>"
-            f"<td style='{_TD}'>{c.listing.city}</td></tr>"
+            f"<td style='{_TD}'>{_esc(c.listing.city)}</td></tr>"
             for c in ev.price_drops
         )
         parts.append(
@@ -225,7 +225,7 @@ def _watch_section(ev: WatchEvents) -> str:
             f"<th style='{_TH}'>{h}</th>" for h in ("Title", "Last price", "Days on market")
         )
         rows = "".join(
-            f"<tr><td style='{_TD}'><a href='{d.url}'>{d.title}</a></td>"
+            f"<tr><td style='{_TD}'>{_link(d.url, d.title)}</td>"
             f"<td style='{_TD}'>{_fmt(d.last_price)}</td>"
             f"<td style='{_TD}'>{d.days_on_market}</td></tr>"
             for d in ev.delisted
