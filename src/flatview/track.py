@@ -15,7 +15,6 @@ from pathlib import Path
 
 from flatview.analytics import (
     annotate_segments,
-    cheapest_by_pm2,
     compute_stats,
     flag_outliers_iqr,
     iqr_fence,
@@ -40,7 +39,13 @@ from flatview.storage import (
     upsert_listings,
     upsert_watch_listings,
 )
-from flatview.trends import TrendSummary, compute_trend
+from flatview.trends import (
+    PriceStory,
+    TrendSummary,
+    build_price_stories,
+    compute_trend,
+    top_deals,
+)
 from flatview.watches import Watch, get_watch, list_watches
 
 logger = logging.getLogger(__name__)
@@ -84,7 +89,8 @@ class WatchEvents:
     delisted: list[DelistedInfo] = field(default_factory=list)
     bargains: list[Listing] = field(default_factory=list)
     overpriced: list[Listing] = field(default_factory=list)
-    cheapest: list[Listing] = field(default_factory=list)  # lowest €/m², market low end
+    top_deals: list[tuple[Listing, float]] = field(default_factory=list)  # (listing, score)
+    stories: dict[tuple[str, str], PriceStory] = field(default_factory=dict)
     fence: tuple[float, float] | None = None  # (low, high) €/m² IQR fence
     stats: dict = field(default_factory=dict)
     trend: TrendSummary | None = None  # deltas vs previous period, DOM, price cuts
@@ -237,9 +243,15 @@ def run_watch(
     flag_outliers_iqr(unique, k=iqr_k)
     events.bargains = [l for l in unique if l.outlier_side == "bargain"]
     events.overpriced = [l for l in unique if l.outlier_side == "overpriced"]
-    events.cheapest = cheapest_by_pm2(unique, n=5)
     events.fence = iqr_fence(unique, k=iqr_k)
     events.stats = compute_stats(unique)
+
+    # Price stories need today's prices in the DB, so real runs only (like
+    # trends); deal ranking degrades to pure discount ranking without them.
+    if not dry_run:
+        events.stories = build_price_stories(conn, unique, on_date=observed_at)
+    median_pm2 = (events.stats.get("pm2") or {}).get("p50")
+    events.top_deals = top_deals(unique, events.stories, median_pm2)
 
     # Trends read the freshly upserted history, so they only exist for real
     # runs; a trend failure must not abort the run (run row would stay stuck).

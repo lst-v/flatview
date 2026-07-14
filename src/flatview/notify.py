@@ -14,6 +14,7 @@ import requests
 from flatview.config import NtfyConfig
 from flatview.errors import NotifyError
 from flatview.html_report import _fmt
+from flatview.storage import listing_key
 from flatview.track import WatchEvents
 
 logger = logging.getLogger(__name__)
@@ -42,16 +43,18 @@ def build_push_message(events: list[WatchEvents], *, max_lines: int = _MAX_LINES
             area = f" · {l.area:.0f} m²" if l.area else ""
             lines.append(f"NEW {_fmt(l.price)} {l.currency}{area} — {l.title} {l.url}")
         for c in ev.price_drops:
+            story = ev.stories.get((c.listing.source, listing_key(c.listing)))
+            extra = f" ({story.brief})" if story and story.brief else ""
             lines.append(
-                f"DROP {c.pct:+.1f}% → {_fmt(c.new_price)} {c.listing.currency} — "
+                f"DROP {c.pct:+.1f}% → {_fmt(c.new_price)} {c.listing.currency}{extra} — "
                 f"{c.listing.title} {c.listing.url}"
             )
         for d in ev.delisted:
             lines.append(f"GONE {d.title} (last {_fmt(d.last_price)})")
 
     if len(lines) > max_lines:
-        extra = len(lines) - max_lines
-        lines = lines[:max_lines] + [f"… and {extra} more — see the digest"]
+        n_more = len(lines) - max_lines
+        lines = lines[:max_lines] + [f"… and {n_more} more — see the digest"]
     return "\n".join(lines)
 
 

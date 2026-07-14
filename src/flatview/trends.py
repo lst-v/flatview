@@ -14,7 +14,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-from flatview.analytics import PLACEHOLDER_PRICE_MAX, compute_percentiles
+from flatview.analytics import PLACEHOLDER_PRICE_MAX, compute_percentiles, price_per_m2
 from flatview.models import Listing
 from flatview.storage import listing_key
 
@@ -193,6 +193,101 @@ def rolling_median_pm2(
         if median is not None:
             out.append((d, median))
     return out
+
+
+@dataclass
+class PriceStory:
+    """One listing's pricing biography, reconstructed from stored history."""
+
+    first_price: float | None = None
+    n_cuts: int = 0
+    total_pct: float | None = None  # current vs first observed price; negative = down
+    days_tracked: int | None = None  # since flatview first saw it, not true market age
+
+    @property
+    def brief(self) -> str:
+        """Short human summary, e.g. '2 cuts · −12% total · 47 d tracked'."""
+        parts = []
+        if self.n_cuts:
+            parts.append(f"{self.n_cuts} cut{'s' if self.n_cuts != 1 else ''}")
+            if self.total_pct:
+                parts.append(f"{self.total_pct:+.0f}% total")
+        if self.days_tracked is not None and self.days_tracked > 0:
+            parts.append(f"{self.days_tracked} d tracked")
+        return " · ".join(parts)
+
+
+def build_price_stories(
+    conn: sqlite3.Connection,
+    listings: list[Listing],
+    *,
+    on_date: str,
+) -> dict[tuple[str, str], PriceStory]:
+    """Price story per (source, listing_key) from price_history up to on_date."""
+    stories: dict[tuple[str, str], PriceStory] = {}
+    for l in listings:
+        key = listing_key(l)
+        prices = [
+            row[0]
+            for row in conn.execute(
+                """SELECT price FROM price_history
+                   WHERE source = ? AND listing_key = ? AND observed_at <= ?
+                     AND price IS NOT NULL
+                   ORDER BY observed_at""",
+                (l.source, key, on_date),
+            )
+        ]
+        story = PriceStory()
+        if prices:
+            story.first_price = prices[0]
+            pairs = zip(prices, prices[1:], strict=False)
+            story.n_cuts = sum(1 for prev, cur in pairs if cur < prev)
+            if prices[0] > PLACEHOLDER_PRICE_MAX and prices[-1] != prices[0]:
+                story.total_pct = (prices[-1] / prices[0] - 1) * 100
+        if l.first_seen:
+            first = date.fromisoformat(l.first_seen)
+            story.days_tracked = (date.fromisoformat(on_date) - first).days
+        stories[(l.source, key)] = story
+    return stories
+
+
+def deal_score(
+    listing: Listing,
+    median_pm2: float | None,
+    story: PriceStory | None,
+) -> float | None:
+    """How attractive a listing is vs its market. Transparent, in 'points':
+
+    % below the median €/m², plus half the total price-cut % (a motivated
+    seller), plus up to 5 points for time on market (capped at 60 days —
+    stale listings are negotiable).
+    """
+    pm2 = price_per_m2(listing)
+    if pm2 is None or not median_pm2:
+        return None
+    score = (median_pm2 - pm2) / median_pm2 * 100
+    if story:
+        if story.total_pct and story.total_pct < 0:
+            score += -story.total_pct * 0.5
+        if story.days_tracked:
+            score += min(story.days_tracked, 60) / 60 * 5
+    return score
+
+
+def top_deals(
+    listings: list[Listing],
+    stories: dict[tuple[str, str], PriceStory],
+    median_pm2: float | None,
+    n: int = 5,
+) -> list[tuple[Listing, float]]:
+    """The n best-scoring listings, descending: [(listing, score)]."""
+    scored = []
+    for l in listings:
+        score = deal_score(l, median_pm2, stories.get((l.source, listing_key(l))))
+        if score is not None:
+            scored.append((l, score))
+    scored.sort(key=lambda pair: pair[1], reverse=True)
+    return scored[:n]
 
 
 def median_pm2_series_for_listings(

@@ -12,7 +12,7 @@ from flatview.digest import (
     write_digest,
 )
 from flatview.track import DelistedInfo, PriceChange, WatchEvents
-from flatview.trends import DaysOnMarketStats, PriceCutStats, TrendSummary
+from flatview.trends import DaysOnMarketStats, PriceCutStats, PriceStory, TrendSummary
 from flatview.watches import Watch
 
 GENERATED = datetime(2026, 7, 13, 7, 30)
@@ -102,16 +102,33 @@ def test_render_digest_unique_count(make_listing):
     assert "unique" not in html.split("w2")[1].split("</p>")[0]
 
 
-def test_render_digest_cheapest_section(make_listing):
+def test_render_digest_deals_section(make_listing):
     cheap = make_listing(id=5, title="Najlacnejší", price=80_000, area=50)  # 1600 /m²
     ev = WatchEvents(watch=Watch(name="w"), n_listings=8)
-    ev.cheapest = [cheap]
+    ev.top_deals = [(cheap, 26.4)]
+    ev.stories = {("bazos", "5"): PriceStory(n_cuts=2, total_pct=-12.0, days_tracked=47)}
     ev.stats = {"currency": "EUR", "pm2": {"n": 8, "p50": 2000}}
     html = render_digest([ev], generated_at=GENERATED)
 
-    assert "Lowest €/m² right now (1)" in html
+    assert "Top deals right now (1)" in html
     assert "Najlacnejší" in html
     assert "-20%" in html  # 1600 vs median 2000
+    assert "2 cuts · -12% total · 47 d tracked" in html  # price story
+    assert "<strong>26</strong>" in html  # score
+    assert "Score = % below median" in html  # formula legend
+
+
+def test_drop_story_in_digest_and_text(make_listing):
+    dropped = make_listing(id=2, title="Zľava byt", price=90_000)
+    ev = WatchEvents(watch=Watch(name="w"), n_listings=3)
+    ev.price_drops = [PriceChange(listing=dropped, old_price=100_000, new_price=90_000)]
+    ev.stories = {("bazos", "2"): PriceStory(n_cuts=3, total_pct=-18.0, days_tracked=60)}
+
+    html = render_digest([ev], generated_at=GENERATED)
+    assert "3 cuts · -18% total · 60 d tracked" in html
+
+    text = render_digest_text([ev])
+    assert "[3 cuts · -18% total · 60 d tracked]" in text
 
 
 def _trend(**overrides):

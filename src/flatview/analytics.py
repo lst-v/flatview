@@ -46,13 +46,6 @@ def price_per_m2(listing: Listing) -> float | None:
     return None
 
 
-def cheapest_by_pm2(listings: list[Listing], n: int = 5) -> list[Listing]:
-    """The n listings with the lowest valid €/m², ascending."""
-    priced = [(pm2, l) for l in listings if (pm2 := price_per_m2(l)) is not None]
-    priced.sort(key=lambda pair: pair[0])
-    return [l for _, l in priced[:n]]
-
-
 def compute_percentiles(
     values: list[float], pcts: Iterable[int] = (10, 25, 50, 75, 90)
 ) -> dict[int, float]:

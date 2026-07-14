@@ -301,7 +301,7 @@ def test_dry_run_has_no_trend(conn, watch, make_listing, monkeypatch):
     assert ev.trend is None
 
 
-def test_cheapest_populated(conn, watch, make_listing, monkeypatch):
+def test_top_deals_ranked_by_discount_on_day_one(conn, watch, make_listing, monkeypatch):
     listings = [
         make_listing(id=1, price=100_000, area=50, title="expensive"),
         make_listing(id=2, price=80_000, area=50, title="cheap"),
@@ -311,7 +311,26 @@ def test_cheapest_populated(conn, watch, make_listing, monkeypatch):
     _patch_scrape(monkeypatch, _result(listings))
     ev = run_watch(conn, None, watch, observed_at="2026-07-01")
 
-    assert [l.title for l in ev.cheapest] == ["cheap", "middle", "upper", "expensive"]
+    # No history yet: score is pure discount vs median, so cheapest first.
+    assert [l.title for l, _ in ev.top_deals] == ["cheap", "middle", "upper", "expensive"]
+    scores = [s for _, s in ev.top_deals]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_price_story_after_cut(conn, watch, make_listing, monkeypatch):
+    _patch_scrape(monkeypatch, _result([make_listing(id=1, price=100_000, area=50)]))
+    run_watch(conn, None, watch, observed_at="2026-07-01")
+
+    _patch_scrape(monkeypatch, _result([make_listing(id=1, price=90_000, area=50)]))
+    ev = run_watch(conn, None, watch, observed_at="2026-07-08")
+
+    story = ev.stories[("bazos", "1")]
+    assert story.n_cuts == 1
+    assert story.total_pct == pytest.approx(-10.0)
+    assert story.days_tracked == 7
+    assert story.brief == "1 cut · -10% total · 7 d tracked"
+    # Sole listing: no discount vs itself, but the cut and age boost the score.
+    assert ev.top_deals[0][1] == pytest.approx(5 + 7 / 60 * 5)
 
 
 # --- run_track ---

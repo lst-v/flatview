@@ -4,13 +4,17 @@ import pytest
 
 from flatview.storage import open_db
 from flatview.trends import (
+    PriceStory,
     activity_since,
+    build_price_stories,
     compute_trend,
     days_on_market_stats,
+    deal_score,
     median_pm2_series_for_listings,
     price_cut_stats,
     rolling_median_pm2,
     snapshot,
+    top_deals,
 )
 
 WATCH_ID = 1
@@ -290,6 +294,61 @@ def test_series_collapses_cross_posts_and_placeholders(conn, make_listing):
 
 def test_series_empty_without_history(conn, make_listing):
     assert median_pm2_series_for_listings(conn, [make_listing(id=1)], on_date="2026-07-10") == []
+
+
+# --- price stories & deal ranking ---
+
+
+def test_build_price_stories(conn, make_listing):
+    l = make_listing(id=1, area=50)
+    l.first_seen = "2026-07-01"
+    _seed_history(
+        conn,
+        "bazos",
+        "1",
+        [("2026-07-01", 100_000), ("2026-07-05", 95_000), ("2026-07-08", 90_000)],
+    )
+    story = build_price_stories(conn, [l], on_date="2026-07-10")[("bazos", "1")]
+
+    assert story.first_price == 100_000
+    assert story.n_cuts == 2
+    assert story.total_pct == pytest.approx(-10.0)
+    assert story.days_tracked == 9
+    assert story.brief == "2 cuts · -10% total · 9 d tracked"
+
+
+def test_price_story_respects_on_date(conn, make_listing):
+    l = make_listing(id=1, area=50)
+    _seed_history(
+        conn,
+        "bazos",
+        "1",
+        [("2026-07-01", 100_000), ("2026-07-05", 95_000), ("2026-07-08", 90_000)],
+    )
+    story = build_price_stories(conn, [l], on_date="2026-07-06")[("bazos", "1")]
+    assert story.n_cuts == 1
+    assert story.total_pct == pytest.approx(-5.0)
+
+
+def test_deal_score_components(make_listing):
+    l = make_listing(id=1, price=90_000, area=50)  # 1800 €/m²
+
+    assert deal_score(l, 2000, None) == pytest.approx(10.0)  # 10% below median
+    story = PriceStory(n_cuts=1, total_pct=-10.0, days_tracked=30)
+    assert deal_score(l, 2000, story) == pytest.approx(10.0 + 5.0 + 2.5)
+
+    assert deal_score(make_listing(id=2, price=None), 2000, None) is None
+    assert deal_score(l, None, None) is None
+
+
+def test_top_deals_cut_history_beats_raw_discount(make_listing):
+    a = make_listing(id=1, price=90_000, area=50, title="cheapest")  # discount 10
+    b = make_listing(id=2, price=95_000, area=50, title="motivated")  # discount 5
+    stories = {("bazos", "2"): PriceStory(n_cuts=2, total_pct=-20.0, days_tracked=60)}
+
+    deals = top_deals([a, b], stories, 2000)
+    assert [l.title for l, _ in deals] == ["motivated", "cheapest"]
+    assert deals[0][1] == pytest.approx(5 + 10 + 5)  # discount + cut bonus + max age bonus
 
 
 # --- rolling series & full trend ---

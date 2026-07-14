@@ -13,8 +13,9 @@ from pathlib import Path
 from flatview.analytics import price_per_m2
 from flatview.html_report import _esc, _fmt, _link
 from flatview.models import Listing
+from flatview.storage import listing_key
 from flatview.track import WatchEvents
-from flatview.trends import TrendSummary
+from flatview.trends import PriceStory, TrendSummary
 
 _TABLE = "border-collapse:collapse;margin:8px 0 16px 0;font-size:14px"
 _TH = "padding:4px 10px;border:1px solid #ddd;background:#f6f6f6;text-align:left"
@@ -68,32 +69,41 @@ def _listing_table(listings: list[Listing]) -> str:
     )
 
 
-def _cheapest_table(listings: list[Listing], stats: dict) -> str:
-    """Low-end snapshot: cheapest listings by €/m² with distance from the median."""
-    median = (stats.get("pm2") or {}).get("p50")
+def _story_for(ev: WatchEvents, l: Listing) -> PriceStory | None:
+    return ev.stories.get((l.source, listing_key(l)))
+
+
+def _deals_table(ev: WatchEvents) -> str:
+    """Best value right now: ranked by deal score, with each flat's price story."""
+    median = (ev.stats.get("pm2") or {}).get("p50")
     head = "".join(
-        f"<th style='{_TH}'>{h}</th>" for h in ("Title", "Price", "m²", "€/m²", "vs median", "City")
+        f"<th style='{_TH}'>{h}</th>"
+        for h in ("Title", "Price", "m²", "€/m²", "vs median", "Story", "Score", "City")
     )
     rows = []
-    for l in listings:
+    for l, score in ev.top_deals:
         pm2 = price_per_m2(l)
-        title = _link(l.url, l.title)
         vs = ""
         if pm2 is not None and median:
             pct = (pm2 / median - 1) * 100
             color = "#0a7f33" if pct < 0 else "#666"
             vs = f"<span style='color:{color}'>{pct:+.0f}%</span>"
+        story = _story_for(ev, l)
         rows.append(
-            f"<tr><td style='{_TD}'>{title}</td>"
+            f"<tr><td style='{_TD}'>{_link(l.url, l.title)}</td>"
             f"<td style='{_TD}'>{_fmt(l.price)}</td>"
             f"<td style='{_TD}'>{_fmt(l.area)}</td>"
             f"<td style='{_TD}'>{_fmt(pm2)}</td>"
             f"<td style='{_TD}'>{vs}</td>"
+            f"<td style='{_TD}'>{story.brief if story else ''}</td>"
+            f"<td style='{_TD}'><strong>{score:.0f}</strong></td>"
             f"<td style='{_TD}'>{_esc(l.city)}</td></tr>"
         )
     return (
         f"<table style='{_TABLE}'><thead><tr>{head}</tr></thead>"
         f"<tbody>{''.join(rows)}</tbody></table>"
+        f"<p style='color:#666;font-size:12px;margin:2px 0'>Score = % below median €/m² "
+        f"+ half the total price-cut % + up to 5 points for time on market.</p>"
     )
 
 
@@ -204,12 +214,15 @@ def _watch_section(ev: WatchEvents) -> str:
         parts.append(_listing_table(ev.new))
 
     if ev.price_drops:
-        head = "".join(f"<th style='{_TH}'>{h}</th>" for h in ("Title", "Old", "New", "Δ%", "City"))
+        head = "".join(
+            f"<th style='{_TH}'>{h}</th>" for h in ("Title", "Old", "New", "Δ%", "Story", "City")
+        )
         rows = "".join(
             f"<tr><td style='{_TD}'>{_link(c.listing.url, c.listing.title)}</td>"
             f"<td style='{_TD}'>{_fmt(c.old_price)}</td>"
             f"<td style='{_TD}'><strong>{_fmt(c.new_price)}</strong></td>"
             f"<td style='{_TD};color:#0a7f33'>{c.pct:+.1f}%</td>"
+            f"<td style='{_TD}'>{s.brief if (s := _story_for(ev, c.listing)) else ''}</td>"
             f"<td style='{_TD}'>{_esc(c.listing.city)}</td></tr>"
             for c in ev.price_drops
         )
@@ -256,9 +269,9 @@ def _watch_section(ev: WatchEvents) -> str:
             parts.append(fence_note)
         parts.append(_listing_table(ev.overpriced))
 
-    if ev.cheapest:
-        parts.append(f"<p><strong>📊 Lowest €/m² right now ({len(ev.cheapest)})</strong></p>")
-        parts.append(_cheapest_table(ev.cheapest, ev.stats))
+    if ev.top_deals:
+        parts.append(f"<p><strong>💎 Top deals right now ({len(ev.top_deals)})</strong></p>")
+        parts.append(_deals_table(ev))
 
     if ev.trend and not ev.is_baseline:
         parts.append(_trend_block(ev.trend))
@@ -300,9 +313,11 @@ def render_digest_text(events: list[WatchEvents]) -> str:
         for l in ev.new:
             lines.append(f"  NEW: {l.title} — {_fmt(l.price)} {l.currency} — {l.url}")
         for c in ev.price_drops:
+            story = _story_for(ev, c.listing)
+            suffix = f" [{story.brief}]" if story and story.brief else ""
             lines.append(
                 f"  DROP: {c.listing.title} — {_fmt(c.old_price)} -> {_fmt(c.new_price)} "
-                f"({c.pct:+.1f}%) — {c.listing.url}"
+                f"({c.pct:+.1f}%){suffix} — {c.listing.url}"
             )
         for d in ev.delisted:
             lines.append(f"  DELISTED: {d.title} — last {_fmt(d.last_price)} — {d.url}")

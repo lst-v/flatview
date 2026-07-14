@@ -64,6 +64,8 @@ Each `track` run detects, per watch:
 - **Price drops / increases** — vs the last stored price
 - **Delistings** — listings not seen for 2+ days (configurable); likely sold or withdrawn
 - **Bargains / overpriced** — two-sided IQR outliers on €/m²
+- **Price stories** — each price drop shows the listing's biography: "2 cuts · −12% total · 47 d tracked" (a motivated seller looks exactly like this)
+- **Top deals** — listings ranked by a transparent score: % below the median €/m² + half the total price-cut % + up to 5 points for time on market
 - **Market trend** — median €/m² and active-listing count vs 7 days ago, a 30-day median series, median days on market of recent delistings, and price-cut share/size — all computed from the stored history, cross-posts counted once
 
 Every run writes an HTML digest to `~/.local/share/flatview/digests/` (plus `latest.html`). With SMTP configured, the digest is also emailed — by default only when something actually happened. With `[ntfy]` configured, event runs additionally send a push notification to your phone.

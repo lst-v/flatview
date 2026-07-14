@@ -123,20 +123,6 @@ def test_placeholder_price_not_flagged_as_bargain(make_listing):
     assert placeholder.outlier_side is None
 
 
-def test_cheapest_by_pm2(make_listing):
-    from flatview.analytics import cheapest_by_pm2
-
-    listings = [
-        make_listing(id=1, price=100_000, area=50, title="2000"),  # 2000 /m²
-        make_listing(id=2, price=90_000, area=60, title="1500"),  # 1500 /m²
-        make_listing(id=3, price=120_000, area=50, title="2400"),  # 2400 /m²
-        make_listing(id=4, price=1.0, area=50, title="placeholder"),  # excluded
-        make_listing(id=5, price=None, area=50, title="no price"),  # excluded
-    ]
-    cheapest = cheapest_by_pm2(listings, n=2)
-    assert [l.title for l in cheapest] == ["1500", "2000"]
-
-
 def test_outlier_custom_k(make_listing):
     prices = [100_000, 110_000, 120_000, 130_000, 145_000]
     listings = [make_listing(price=p, area=50, title=f"t{p}") for p in prices]
